@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:health/health.dart';
 import 'package:carry_app/services/health_service.dart';
 import 'package:carry_app/services/session_service.dart';
+import 'package:carry_app/services/api_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -30,7 +31,10 @@ class CarryAppScreen extends StatefulWidget {
 class _CarryAppScreenState extends State<CarryAppScreen> {
   final HealthService _healthService = HealthService();
   final SessionService _sessionService = SessionService();
+  final ApiService _apiService = ApiService();
+
   List<String> _logs = [];
+  List<String> _apiLogs = [];
   List<HealthDataPoint> _sleepData = [];
   bool _isLoading = false;
   String? _sessionKey;
@@ -57,6 +61,16 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
     setState(() {
       _sleepData = sleepData;
       _isLoading = false;
+    });
+  }
+
+  /// **APIの初期設定**
+  Future<void> initializeApi() async {
+    setState(() => _apiLogs = ["API 初期設定開始..."]);
+    bool success = await _apiService.initializeDirectories();
+    setState(() {
+      _apiLogs.add(success ? "API 初期設定成功！" : "API 初期設定失敗...");
+      _apiLogs.addAll(_apiService.logs); // APIログを追加
     });
   }
 
@@ -135,13 +149,28 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
                           builder: (context) => const SessionKeyWebView(),
                         ),
                       );
-                      if (token != null)
+                      if (token != null) {
                         await _sessionService.saveSessionKey(token);
-                      setState(() => _sessionKey = token);
+                        setState(() => _sessionKey = token);
+                      }
                     },
                     child: const Text("セッションキーを取得"),
                   ),
+                  const SizedBox(height: 10),
                   Text("セッションキー: ${_sessionKey ?? '未取得'}"),
+                  const SizedBox(height: 10),
+                  ElevatedButton(
+                    onPressed: initializeApi,
+                    child: const Text("API初期設定"),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text(
+                    "APIログ",
+                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                  ),
+                  ..._apiLogs.map(
+                    (log) => Text(log, style: const TextStyle(fontSize: 12)),
+                  ),
                 ],
               ),
             ),
