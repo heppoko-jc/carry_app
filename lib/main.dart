@@ -1,10 +1,8 @@
 import 'dart:async';
-import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:health/health.dart';
-import 'package:permission_handler/permission_handler.dart';
-import 'package:webview_flutter/webview_flutter.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:carry_app/services/health_service.dart';
+import 'package:carry_app/services/session_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -30,116 +28,36 @@ class CarryAppScreen extends StatefulWidget {
 }
 
 class _CarryAppScreenState extends State<CarryAppScreen> {
-  final Health health = Health();
+  final HealthService _healthService = HealthService();
+  final SessionService _sessionService = SessionService();
+  List<String> _logs = [];
   List<HealthDataPoint> _sleepData = [];
   bool _isLoading = false;
-  bool _isAuthorized = false;
   String? _sessionKey;
-  final List<String> _logs = [];
 
   @override
   void initState() {
     super.initState();
-    _initializeHealth();
-    _loadSessionKey();
+    _initialize();
   }
 
-  /// **Health Connect / Apple Health の権限をリクエスト**
-  Future<void> _initializeHealth() async {
+  /// **初期化**
+  Future<void> _initialize() async {
     setState(() => _isLoading = true);
-    _addLog("I/flutter: 権限リクエスト開始...");
-
-    if (Platform.isAndroid &&
-        await Permission.activityRecognition.request().isDenied) {
-      _addLog("I/flutter: ACTIVITY_RECOGNITION の権限が拒否されました");
-      setState(() => _isLoading = false);
-      return;
-    }
-
-    List<HealthDataType> types =
-        Platform.isAndroid
-            ? [
-              HealthDataType.SLEEP_ASLEEP,
-              HealthDataType.SLEEP_AWAKE,
-              HealthDataType.SLEEP_SESSION,
-            ]
-            : [HealthDataType.SLEEP_ASLEEP, HealthDataType.SLEEP_AWAKE];
-
-    bool? hasPermissions = await health.hasPermissions(types);
-    if (hasPermissions == true) {
-      _addLog("I/flutter: 既に Health Connect / Apple Health の権限があります");
-      setState(() => _isAuthorized = true);
-      await fetchSleepData();
-      return;
-    }
-
-    bool requested = await health.requestAuthorization(types);
-    if (!requested) {
-      _addLog("I/flutter: Health Connect / HealthKit の権限リクエストが拒否されました");
-      setState(() {
-        _isAuthorized = false;
-        _isLoading = false;
-      });
-      return;
-    }
-
-    _addLog("I/flutter: Health Connect / HealthKit の権限が付与されました");
-    setState(() => _isAuthorized = true);
-    await fetchSleepData();
+    bool authorized = await _healthService.requestPermissions();
+    if (authorized) await fetchSleepData();
+    _sessionKey = await _sessionService.loadSessionKey();
+    setState(() => _isLoading = false);
   }
 
-  /// **過去 7 日間の睡眠データを取得**
+  /// **睡眠データを取得**
   Future<void> fetchSleepData() async {
     setState(() => _isLoading = true);
-    DateTime now = DateTime.now();
-    DateTime start = now.subtract(const Duration(days: 7));
-
-    _addLog("I/flutter: 睡眠データの取得を開始...");
-    try {
-      List<HealthDataType> types =
-          Platform.isAndroid
-              ? [
-                HealthDataType.SLEEP_ASLEEP,
-                HealthDataType.SLEEP_AWAKE,
-                HealthDataType.SLEEP_SESSION,
-              ]
-              : [HealthDataType.SLEEP_ASLEEP, HealthDataType.SLEEP_AWAKE];
-
-      List<HealthDataPoint> sleepData = await health.getHealthDataFromTypes(
-        startTime: start,
-        endTime: now,
-        types: types,
-      );
-
-      if (sleepData.isEmpty) {
-        _addLog("I/flutter: 取得した睡眠データは空です");
-      } else {
-        _addLog("I/flutter: 取得成功 - ${sleepData.length} 件のデータ");
-      }
-
-      setState(() {
-        _sleepData = sleepData;
-        _isLoading = false;
-      });
-    } catch (e) {
-      _addLog("I/flutter: 睡眠データの取得中にエラーが発生: $e");
-      setState(() => _isLoading = false);
-    }
-  }
-
-  /// **セッションキーを保存**
-  Future<void> _saveSessionKey(String key) async {
-    final prefs = await SharedPreferences.getInstance();
-    await prefs.setString('session_key', key);
+    List<HealthDataPoint> sleepData = await _healthService.fetchSleepData();
     setState(() {
-      _sessionKey = key;
+      _sleepData = sleepData;
+      _isLoading = false;
     });
-  }
-
-  /// **セッションキーを読み込む**
-  Future<void> _loadSessionKey() async {
-    final prefs = await SharedPreferences.getInstance();
-    setState(() => _sessionKey = prefs.getString('session_key'));
   }
 
   /// **ログを追加**
@@ -217,13 +135,12 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
                           builder: (context) => const SessionKeyWebView(),
                         ),
                       );
-                      if (token != null) {
-                        await _saveSessionKey(token);
-                      }
+                      if (token != null)
+                        await _sessionService.saveSessionKey(token);
+                      setState(() => _sessionKey = token);
                     },
                     child: const Text("セッションキーを取得"),
                   ),
-                  const SizedBox(height: 10),
                   Text("セッションキー: ${_sessionKey ?? '未取得'}"),
                 ],
               ),
@@ -231,52 +148,6 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
           ],
         ),
       ),
-    );
-  }
-}
-
-/// **WebView でセッションキーを取得**
-class SessionKeyWebView extends StatefulWidget {
-  const SessionKeyWebView({super.key});
-
-  @override
-  _SessionKeyWebViewState createState() => _SessionKeyWebViewState();
-}
-
-class _SessionKeyWebViewState extends State<SessionKeyWebView> {
-  late final WebViewController _controller;
-
-  @override
-  void initState() {
-    super.initState();
-    _controller =
-        WebViewController()
-          ..setJavaScriptMode(JavaScriptMode.unrestricted)
-          ..setNavigationDelegate(
-            NavigationDelegate(
-              onPageFinished: (String url) {
-                if (url.contains("generated-token=")) {
-                  final Uri uri = Uri.parse(url);
-                  final String? token = uri.queryParameters["generated-token"];
-                  if (token != null) {
-                    Navigator.pop(context, token);
-                  }
-                }
-              },
-            ),
-          )
-          ..loadRequest(
-            Uri.parse(
-              "https://milc.dev.sharo-dev.com/?app=account&dialog=registerNewApp&newApp=Carry-App",
-            ),
-          );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: const Text("セッションキー取得")),
-      body: WebViewWidget(controller: _controller),
     );
   }
 }
