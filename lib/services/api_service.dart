@@ -103,7 +103,7 @@ class ApiService {
 
     final List<Map<String, dynamic>> permissions =
         roleIds.map((roleId) {
-          return {"flag": 2, "kind": 7, "uuid": roleId};
+          return {"flag": 7, "kind": 5, "uuid": roleId};
         }).toList();
 
     final response = await http.post(
