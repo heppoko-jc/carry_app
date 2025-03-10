@@ -1,9 +1,9 @@
-import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:health/health.dart';
 import 'package:carry_app/services/health_service.dart';
 import 'package:carry_app/services/session_service.dart';
 import 'package:carry_app/services/api_service.dart';
+import 'package:carry_app/services/sleep_data_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -32,6 +32,7 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
   final HealthService _healthService = HealthService();
   final SessionService _sessionService = SessionService();
   final ApiService _apiService = ApiService();
+  final SleepDataService _sleepDataService = SleepDataService();
 
   List<String> _logs = [];
   List<String> _apiLogs = [];
@@ -45,7 +46,7 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
     _initialize();
   }
 
-  /// **初期化**
+  /// **初期化処理**
   Future<void> _initialize() async {
     setState(() => _isLoading = true);
     bool authorized = await _healthService.requestPermissions();
@@ -70,17 +71,17 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
     bool success = await _apiService.initializeDirectories();
     setState(() {
       _apiLogs.add(success ? "API 初期設定成功！" : "API 初期設定失敗...");
-      _apiLogs.addAll(_apiService.logs); // APIログを追加
+      _apiLogs.addAll(_apiService.logs);
     });
   }
 
-  /// **ログを追加**
-  void _addLog(String message) {
+  /// **睡眠データをWebCarryに送信**
+  Future<void> sendSleepData() async {
+    setState(() => _apiLogs.add("睡眠データ送信中..."));
+    bool success = await _sleepDataService.sendSleepData(_sleepData);
     setState(() {
-      _logs.add(message);
-      if (_logs.length > 10) _logs.removeAt(0);
+      _apiLogs.add(success ? "睡眠データ送信成功！" : "睡眠データ送信失敗...");
     });
-    print(message);
   }
 
   @override
@@ -112,16 +113,8 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
                   Text("取得データ: ${_sleepData.length}件"),
                   ..._sleepData.map(
                     (data) => Text(
-                      "日付: ${data.dateFrom.toLocal().toString().split(' ')[0]}, 開始: ${data.dateFrom.toLocal().toString().split(' ')[1]}, 終了: ${data.dateTo.toLocal().toString().split(' ')[1]}",
+                      "日付: ${data.dateFrom.toLocal()} - ${data.dateTo.toLocal()}",
                     ),
-                  ),
-                  const SizedBox(height: 10),
-                  const Text(
-                    "ログ",
-                    style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
-                  ),
-                  ..._logs.map(
-                    (log) => Text(log, style: const TextStyle(fontSize: 12)),
                   ),
                 ],
               ),
@@ -141,6 +134,8 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
                     "API設定",
                     style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
                   ),
+
+                  /// **セッションキー取得ボタン**
                   ElevatedButton(
                     onPressed: () async {
                       String? token = await Navigator.push(
@@ -158,19 +153,29 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
                   ),
                   const SizedBox(height: 10),
                   Text("セッションキー: ${_sessionKey ?? '未取得'}"),
-                  const SizedBox(height: 10),
+
+                  const SizedBox(height: 20),
+
+                  /// **API 初期設定ボタン**
                   ElevatedButton(
                     onPressed: initializeApi,
                     child: const Text("API初期設定"),
                   ),
+
+                  const SizedBox(height: 20),
+
+                  /// **睡眠データ送信ボタン**
+                  ElevatedButton(
+                    onPressed: sendSleepData,
+                    child: const Text("睡眠データを送信"),
+                  ),
+
                   const SizedBox(height: 10),
                   const Text(
                     "APIログ",
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
-                  ..._apiLogs.map(
-                    (log) => Text(log, style: const TextStyle(fontSize: 12)),
-                  ),
+                  ..._apiLogs.map((log) => Text(log)),
                 ],
               ),
             ),
