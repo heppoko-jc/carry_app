@@ -4,6 +4,7 @@ import 'package:carry_app/services/health_service.dart';
 import 'package:carry_app/services/session_service.dart';
 import 'package:carry_app/services/api_service.dart';
 import 'package:carry_app/services/sleep_data_service.dart';
+import 'package:carry_app/services/game_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -33,12 +34,22 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
   final SessionService _sessionService = SessionService();
   final ApiService _apiService = ApiService();
   final SleepDataService _sleepDataService = SleepDataService();
+  final GameService _gameService = GameService();
 
   List<String> _logs = [];
   List<String> _apiLogs = [];
+  List<String> _gameLogs = [];
   List<HealthDataPoint> _sleepData = [];
   bool _isLoading = false;
   String? _sessionKey;
+
+  // ゲーム情報取得用の変数
+  String _gameName = "";
+  String _tagLine = "";
+  String? _puuid;
+  List<String> _matchIds = [];
+  String? _latestMatchId;
+  Map<String, dynamic>? _matchInfo;
 
   @override
   void initState() {
@@ -82,6 +93,47 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
     setState(() {
       _apiLogs.add(success ? "睡眠データ送信成功！" : "睡眠データ送信失敗...");
     });
+  }
+
+  /// **ゲーム情報を取得**
+  Future<void> fetchGameInfo() async {
+    setState(() {
+      _gameLogs = ["🎮 ゲーム情報取得開始..."];
+    });
+
+    if (_gameName.isEmpty || _tagLine.isEmpty) {
+      _addGameLog("❌ ゲームネームとタグラインを入力してください。");
+      return;
+    }
+
+    String? puuid = await _gameService.getPUUID(_gameName, _tagLine);
+    if (puuid == null) return;
+
+    List<String>? matchIds = await _gameService.getMatchList(puuid);
+    if (matchIds == null || matchIds.isEmpty) return;
+
+    _matchIds = matchIds;
+    _latestMatchId = matchIds.first;
+
+    Map<String, dynamic>? matchInfo = await _gameService.getMatchInfo(
+      _latestMatchId!,
+    );
+    if (matchInfo != null) {
+      _matchInfo = matchInfo;
+    }
+
+    setState(() {
+      _gameLogs.addAll(_gameService.logs);
+    });
+  }
+
+  /// **ログを追加**
+  void _addGameLog(String message) {
+    setState(() {
+      _gameLogs.add(message);
+      if (_gameLogs.length > 10) _gameLogs.removeAt(0);
+    });
+    print(message);
   }
 
   @override
@@ -176,6 +228,55 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
                     style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                   ),
                   ..._apiLogs.map((log) => Text(log)),
+                ],
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            /// **Gameブロック**
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.orange, width: 2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                children: [
+                  const Text(
+                    "Game情報",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  TextField(
+                    decoration: const InputDecoration(labelText: "ゲームネーム"),
+                    onChanged: (value) => _gameName = value,
+                  ),
+                  TextField(
+                    decoration: const InputDecoration(labelText: "タグライン"),
+                    onChanged: (value) => _tagLine = value,
+                  ),
+                  ElevatedButton(
+                    onPressed: fetchGameInfo,
+                    child: const Text("マッチ情報を取得"),
+                  ),
+                  const SizedBox(height: 10),
+                  const Text("マッチ情報"),
+                  _matchInfo != null
+                      ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text("マップ: ${_matchInfo!["matchInfo"]["mapId"]}"),
+                          Text(
+                            "ゲームモード: ${_matchInfo!["matchInfo"]["gameMode"]}",
+                          ),
+                          ..._matchInfo!["players"].map<Widget>((player) {
+                            return Text(
+                              "${player["gameName"]} - K/D/A: ${player["stats"]["kills"]}/${player["stats"]["deaths"]}/${player["stats"]["assists"]}",
+                            );
+                          }).toList(),
+                        ],
+                      )
+                      : const Text("マッチ情報なし"),
+                  ..._gameLogs.map((log) => Text(log)),
                 ],
               ),
             ),
