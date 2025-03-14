@@ -5,6 +5,7 @@ import 'package:carry_app/services/session_service.dart';
 import 'package:carry_app/services/api_service.dart';
 import 'package:carry_app/services/sleep_data_service.dart';
 import 'package:carry_app/services/game_service.dart';
+import 'package:carry_app/services/riot_auth_service.dart';
 
 void main() {
   runApp(const MyApp());
@@ -35,6 +36,7 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
   final ApiService _apiService = ApiService();
   final SleepDataService _sleepDataService = SleepDataService();
   final GameService _gameService = GameService();
+  final RiotAuthService _riotAuthService = RiotAuthService();
 
   List<String> _logs = [];
   List<String> _apiLogs = [];
@@ -50,6 +52,10 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
   List<String> _matchIds = [];
   String? _latestMatchId;
   Map<String, dynamic>? _matchInfo;
+
+  // Riot認証用
+  String? _riotAccessToken;
+  Map<String, dynamic>? _riotUserInfo;
 
   @override
   void initState() {
@@ -125,6 +131,24 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
     setState(() {
       _gameLogs.addAll(_gameService.logs);
     });
+  }
+
+  /// **Riot GamesのOAuth認証**
+  Future<void> authenticateWithRiot() async {
+    String? accessToken = await _riotAuthService.authenticate(context);
+
+    if (accessToken != null) {
+      setState(() {
+        _riotAccessToken = accessToken;
+      });
+
+      Map<String, dynamic>? userInfo = await _riotAuthService.getUserInfo(
+        accessToken,
+      );
+      setState(() {
+        _riotUserInfo = userInfo;
+      });
+    }
   }
 
   /// **ログを追加**
@@ -277,6 +301,45 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
                       )
                       : const Text("マッチ情報なし"),
                   ..._gameLogs.map((log) => Text(log)),
+                ],
+              ),
+            ),
+
+            /// **Riotブロック**
+            Container(
+              padding: const EdgeInsets.all(16),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.purple, width: 2),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Column(
+                children: [
+                  const Text(
+                    "Riot Games 認証",
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  ),
+                  ElevatedButton(
+                    onPressed: authenticateWithRiot,
+                    child: const Text("Riot認証"),
+                  ),
+                  const SizedBox(height: 10),
+                  Text("Access Token: ${_riotAccessToken ?? '未認証'}"),
+                  const SizedBox(height: 10),
+                  if (_riotUserInfo != null)
+                    Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        const Text(
+                          "ユーザー情報:",
+                          style: TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
+                        Text("PUUID: ${_riotUserInfo!['sub'] ?? '不明'}"),
+                        Text("CPID: ${_riotUserInfo!['cpid'] ?? '不明'}"),
+                      ],
+                    ),
                 ],
               ),
             ),
