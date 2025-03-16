@@ -53,9 +53,11 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
   String? _latestMatchId;
   Map<String, dynamic>? _matchInfo;
 
-  // Riot認証用
+  // Riot認証情報
   String? _riotAccessToken;
-  Map<String, dynamic>? _riotUserInfo;
+  String? _riotPUUID;
+  String? _riotGameName;
+  String? _riotTagLine;
 
   @override
   void initState() {
@@ -133,7 +135,7 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
     });
   }
 
-  /// **Riot GamesのOAuth認証**
+  /// **Riot認証**
   Future<void> authenticateWithRiot() async {
     String? accessToken = await _riotAuthService.authenticate(context);
 
@@ -142,12 +144,15 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
         _riotAccessToken = accessToken;
       });
 
-      Map<String, dynamic>? userInfo = await _riotAuthService.getUserInfo(
-        accessToken,
-      );
-      setState(() {
-        _riotUserInfo = userInfo;
-      });
+      Map<String, dynamic>? riotUserInfo = await _riotAuthService
+          .getAccountInfo(accessToken);
+      if (riotUserInfo != null) {
+        setState(() {
+          _riotPUUID = riotUserInfo["puuid"];
+          _riotGameName = riotUserInfo["gameName"];
+          _riotTagLine = riotUserInfo["tagLine"];
+        });
+      }
     }
   }
 
@@ -324,22 +329,9 @@ class _CarryAppScreenState extends State<CarryAppScreen> {
                   ),
                   const SizedBox(height: 10),
                   Text("Access Token: ${_riotAccessToken ?? '未認証'}"),
-                  const SizedBox(height: 10),
-                  if (_riotUserInfo != null)
-                    Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        const Text(
-                          "ユーザー情報:",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        Text("PUUID: ${_riotUserInfo!['sub'] ?? '不明'}"),
-                        Text("CPID: ${_riotUserInfo!['cpid'] ?? '不明'}"),
-                      ],
-                    ),
+                  Text("PUUID: ${_riotPUUID ?? '未取得'}"),
+                  Text("Game Name: ${_riotGameName ?? '未取得'}"),
+                  Text("Tag Line: ${_riotTagLine ?? '未取得'}"),
                 ],
               ),
             ),
