@@ -18,6 +18,22 @@ class SessionService {
     sessionKey = prefs.getString('session_key');
     return sessionKey;
   }
+
+  /// **セッションキーをWebViewで取得するフローを実行**
+  /// 取得したら SharedPreferences に保存し、呼び出し元に返す
+  Future<String?> acquireSessionKey(BuildContext context) async {
+    // WebViewを開いて、セッションキーを取得する
+    final String? token = await Navigator.push(
+      context,
+      MaterialPageRoute(builder: (context) => const SessionKeyWebView()),
+    );
+
+    if (token != null) {
+      await saveSessionKey(token);
+      return token;
+    }
+    return null;
+  }
 }
 
 /// **WebView でセッションキーを取得**
