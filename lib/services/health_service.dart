@@ -52,7 +52,7 @@ class HealthService {
     }
 
     DateTime now = DateTime.now();
-    DateTime start = now.subtract(const Duration(days: 7));
+    DateTime start = now.subtract(const Duration(days: 8));
 
     List<HealthDataType> types =
         Platform.isAndroid

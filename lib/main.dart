@@ -55,7 +55,7 @@ class _AppRouterState extends State<AppRouter> {
       return const InitSetupScreen();
     } else {
       // 2回目以降 → メイン画面へ
-      return const MainScreen();
+      return MainScreen(sleepData: const [], recentMatches: const []);
     }
   }
 }

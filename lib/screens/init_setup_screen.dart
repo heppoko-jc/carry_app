@@ -6,6 +6,7 @@ import 'package:health/health.dart';
 import '../services/api_service.dart';
 import '../services/riot_auth_service.dart';
 import '../services/health_service.dart';
+import '../services/game_service.dart';
 import 'main_screen.dart';
 
 class InitSetupScreen extends StatefulWidget {
@@ -21,6 +22,7 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
   final ApiService _apiService = ApiService();
   final RiotAuthService _riotAuthService = RiotAuthService();
   final HealthService _healthService = HealthService();
+  final GameService _gameService = GameService();
 
   String? _sessionKey;
   String? _riotAccessToken;
@@ -30,6 +32,8 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
 
   // 過去7日間の睡眠データを保持
   List<HealthDataPoint> _sleepData = [];
+
+  List<Map<String, dynamic>> _recentMatches = [];
 
   Future<void> _startSetup() async {
     setState(() => _isLoading = true);
@@ -77,19 +81,25 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
     final sleepData = await _healthService.fetchSleepData();
     _sleepData = sleepData;
 
-    // 5. SharedPreferencesなどに必要なデータを保存
+    // 5. VALORANTのマッチ情報を直近1週間取得
+    if (_riotPUUID != null && _riotPUUID!.isNotEmpty) {
+      final matches = await _gameService.getRecentMatches(_riotPUUID!);
+      _recentMatches = matches;
+    }
+
+    // 6. SharedPreferencesなどに必要なデータを保存
     final prefs = await SharedPreferences.getInstance();
     prefs.setString('session_key', _sessionKey!);
     prefs.setString('riot_puuid', _riotPUUID ?? '');
     prefs.setString('riot_gameName', _riotGameName ?? '');
     prefs.setString('riot_tagLine', _riotTagLine ?? '');
 
-    // 6. 初期設定完了
+    // 7. 初期設定完了
     prefs.setBool('isSetupComplete', true);
 
     setState(() => _isLoading = false);
 
-    // 7. メイン画面へ遷移 (睡眠データを渡す)
+    // 8. メイン画面へ遷移 (睡眠データを渡す)
     Navigator.pushReplacement(
       context,
       MaterialPageRoute(
@@ -100,6 +110,7 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
               riotPUUID: _riotPUUID,
               riotGameName: _riotGameName,
               riotTagLine: _riotTagLine,
+              recentMatches: _recentMatches,
             ),
       ),
     );
