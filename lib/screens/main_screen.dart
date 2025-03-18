@@ -1,22 +1,18 @@
 import 'package:flutter/material.dart';
-import 'package:health/health.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-// 他のファイルで定義した HealthService / GameService を使用
+import 'package:health/health.dart';
+import 'package:fl_chart/fl_chart.dart';
 import '../services/health_service.dart';
 import '../services/game_service.dart';
 
 class MainScreen extends StatefulWidget {
-  /// 初期設定画面 (InitSetupScreen) から渡されるデータ
-  ///  - sleepData:  初回起動時に取得した過去7~8日分の睡眠データ (省略可能)
-  ///  - recentMatches: 同じく初回起動時に取得したマッチ情報 (省略可能)
-  final List<HealthDataPoint>? sleepData;
-  final List<Map<String, dynamic>>? recentMatches;
+  final List<HealthDataPoint>? sleepData; // 初回起動時などに渡される睡眠データ
+  final List<Map<String, dynamic>>? recentMatches; // 初回起動時などに渡されるマッチデータ
 
-  /// WebCarry や Riot認証で取得した各種情報 (表示目的)
-  final String? sessionKey;
-  final String? riotPUUID;
-  final String? riotGameName;
-  final String? riotTagLine;
+  final String? sessionKey; // 表示用
+  final String? riotPUUID; // 表示用
+  final String? riotGameName; // 表示用
+  final String? riotTagLine; // 表示用
 
   const MainScreen({
     super.key,
@@ -33,32 +29,29 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  // 2回目以降にも再取得したいので、HealthService / GameService をインスタンス化
+  // サービス
   final HealthService _healthService = HealthService();
   final GameService _gameService = GameService();
 
-  // 「画面表示用のデータ」を保持する変数
-  // 初回起動時に引数からコピーし、2回目以降は run-time で再取得したデータを再セット
+  // メイン画面上で扱うデータ
   List<HealthDataPoint> _sleepData = [];
   List<Map<String, dynamic>> _recentMatches = [];
 
-  // 「画面下部」で表示するセッションキー・PUUID を保持
-  // ここに SharedPreferences からの読み込み結果を代入する
+  // セッションキー / PUUID の再ロード用
   String? _sessionKey;
   String? _puuid;
 
-  // 読み込み中フラグ
   bool _isLoading = false;
 
-  // 日付切り替え用
-  late List<DateTime> _dates; // 前日〜7日前の日付をまとめたもの
-  int _dayIndex = 0; // 0 => 最も新しい日(前日), 6 => 最も古い日(7日前)
+  // 日付切り替え用 (前日～7日前)
+  late List<DateTime> _dates;
+  int _dayIndex = 0;
 
   @override
   void initState() {
     super.initState();
 
-    // ① 初期設定画面から渡されたデータ(一度だけ受け取る)
+    // 1) 初回起動時に引数で渡されたデータをコピー
     if (widget.sleepData != null) {
       _sleepData = widget.sleepData!;
     }
@@ -66,22 +59,21 @@ class _MainScreenState extends State<MainScreen> {
       _recentMatches = widget.recentMatches!;
     }
 
-    // ② セッションキー / puuid も初回用をコピー
+    // セッションキー / PUUID も初期値をコピー
     _sessionKey = widget.sessionKey;
     _puuid = widget.riotPUUID;
 
-    // ③ 日付リスト(前日〜7日前)を作る
+    // 2) 日付リストを生成
     _setupDates();
 
-    // ④ 2回目以降 or 毎起動時に Sleep & Match を再取得して更新
+    // 3) 2回目以降の再取得 or 毎回最新取得
     _fetchAllData();
   }
 
-  /// 前日〜7日前の日付リストを作る
-  /// 例: 今日が3/17 → 前日は3/16 → そこから 3/16,15,14,13,12,11,10 の順で _dates に格納
+  /// (A) 前日～7日前の日付をリストに
   void _setupDates() {
     final now = DateTime.now();
-    // 前日(今日の 00:00 から1日引く)
+    // 前日(今日の00:00 - 1日)
     final end = DateTime(
       now.year,
       now.month,
@@ -92,21 +84,20 @@ class _MainScreenState extends State<MainScreen> {
     for (int i = 0; i < 7; i++) {
       _dates.add(end.subtract(Duration(days: i)));
     }
-    // _dates[0]が最も新しい日(3/16), _dates[6]が最も古い日(3/10)など
+    // [0] => 前日, [6] => 7日前
     _dayIndex = 0;
   }
 
-  /// 2回目以降でも SleepData & MatchData を都度再取得する
-  ///  (初回時: もうすでに widget.* で渡されているが、再取得で最新化する)
+  /// (B) 2回目以降にも Sleep / Match を再取得
   Future<void> _fetchAllData() async {
     setState(() => _isLoading = true);
 
-    // SharedPreferences から session_key, riot_puuid を読み取り
+    // SharedPreferencesから session_key / riot_puuid を読み出し
     final prefs = await SharedPreferences.getInstance();
     _sessionKey = prefs.getString('session_key') ?? _sessionKey;
     _puuid = prefs.getString('riot_puuid') ?? _puuid;
 
-    // ① HealthService: 権限リクエスト → 過去(8日ぶん)の睡眠を取得
+    // 1. Health -> 8日分を取得
     final authorized = await _healthService.requestPermissions();
     if (authorized) {
       final newSleepData = await _healthService.fetchSleepData();
@@ -115,7 +106,7 @@ class _MainScreenState extends State<MainScreen> {
       });
     }
 
-    // ② GameService: _puuid があれば 1週間分のマッチを取得
+    // 2. Game -> PUUIDあれば直近1週間
     if (_puuid != null && _puuid!.isNotEmpty) {
       final newMatches = await _gameService.getRecentMatches(_puuid!);
       setState(() {
@@ -128,14 +119,19 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 現在選択されている日付
+    // 現在の日付
     final date = currentDate;
-    // 文字列
     final dateStr = currentDateString;
 
-    // 指定日の睡眠/マッチを絞り込み
+    // 当日分の睡眠 / マッチデータ
     final sleepsOfDay = _filterSleepData(date);
     final matchesOfDay = _filterMatchData(date);
+
+    // 円グラフ(ドーナツ)
+    final dailyDonut = _buildDailyDonutChart(date);
+
+    // 1週間の棒グラフ
+    final weeklyBar = _buildWeeklyBar();
 
     return Scaffold(
       appBar: AppBar(title: const Text("Carry App - Main Screen")),
@@ -147,12 +143,22 @@ class _MainScreenState extends State<MainScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ＜日付切り替えUI＞
+                    // ===== 日付ナビゲータ (＜ 日付 ＞) =====
                     _buildDateNavigator(),
-
                     const SizedBox(height: 20),
 
-                    // 日付別 睡眠データ
+                    // ===== 24時間ドーナツ (その日の睡眠/ゲーム/その他) =====
+                    Text(
+                      "【$dateStr】ドーナツグラフ (24h)",
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    dailyDonut,
+                    const SizedBox(height: 20),
+
+                    // ===== 当日の睡眠データ =====
                     Text(
                       "【$dateStr】の睡眠データ",
                       style: const TextStyle(
@@ -174,7 +180,7 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                     const SizedBox(height: 20),
 
-                    // 日付別 マッチデータ
+                    // ===== 当日のマッチデータ =====
                     Text(
                       "【$dateStr】のマッチ情報",
                       style: const TextStyle(
@@ -189,11 +195,22 @@ class _MainScreenState extends State<MainScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: matchesOfDay.map(_buildMatchItem).toList(),
                       ),
+                    const SizedBox(height: 30),
+
+                    // ===== 1週間の棒グラフ =====
+                    const Text(
+                      "1週間の睡眠 / ゲーム 棒グラフ",
+                      style: TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    weeklyBar,
 
                     const SizedBox(height: 30),
                     const Divider(),
 
-                    // 画面下部にセッションキー/PUUID/その他表示
+                    // ===== 下部にセッションキーやPUUID等 =====
                     Text("セッションキー: ${_sessionKey ?? '未取得'}"),
                     Text("PUUID: ${_puuid ?? '未取得'}"),
                     Text("Game Name: ${widget.riotGameName ?? '未取得'}"),
@@ -204,12 +221,12 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  /// 日付ナビゲーション (＜＞) ボタン
+  /// 【 日付ナビゲータ (＜＞ボタン) 】
   Widget _buildDateNavigator() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
-        // 左(＜) => _dayIndex++ => より過去の日付へ
+        // 左 (＜) => dayIndex++
         IconButton(
           icon: const Icon(Icons.chevron_left),
           onPressed:
@@ -221,14 +238,11 @@ class _MainScreenState extends State<MainScreen> {
                     });
                   },
         ),
-
-        // 選択中の日付(yyyy-mm-dd)
         Text(
           currentDateString,
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
-
-        // 右(＞) => _dayIndex-- => より新しい日付へ
+        // 右 (＞) => dayIndex--
         IconButton(
           icon: const Icon(Icons.chevron_right),
           onPressed:
@@ -244,10 +258,10 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  /// 現在の日付 (0番目 => 前日, 6番目 => 1週間前)
+  // 日付リストで現在の日付
   DateTime get currentDate => _dates[_dayIndex];
 
-  /// 日付の文字列表現
+  // yyyy-mm-dd表示
   String get currentDateString {
     final d = currentDate;
     return "${d.year}-${_twoDigits(d.month)}-${_twoDigits(d.day)}";
@@ -255,7 +269,120 @@ class _MainScreenState extends State<MainScreen> {
 
   String _twoDigits(int n) => n.toString().padLeft(2, '0');
 
-  /// 指定日の「終了日時が date の睡眠データ」だけを抽出
+  // 今日 or 選択日の 「睡眠 (分)」 を計算
+  double _calcDailySleepMin(DateTime date) {
+    // 当日終了の睡眠データをすべて合算
+    final sleeps = _filterSleepData(date);
+    double sumMin = 0;
+    for (var pt in sleeps) {
+      final duration = pt.dateTo.difference(pt.dateFrom).inMinutes;
+      // 安全策
+      if (duration > 0) {
+        sumMin += duration;
+      }
+    }
+    return sumMin;
+  }
+
+  // 今日 or 選択日の 「ゲーム (分)」 を計算
+  double _calcDailyGameMin(DateTime date) {
+    // 当日開始のマッチ => time = gameLengthMillis合計
+    final matches = _filterMatchData(date);
+    double sumMin = 0;
+    for (var m in matches) {
+      final lengthMs = (m["gameLengthMillis"] as int?) ?? 0;
+      if (lengthMs > 0) {
+        sumMin += (lengthMs / 60000.0);
+      }
+    }
+    return sumMin;
+  }
+
+  /// (1) ドーナツチャート: 睡眠 / ゲーム / その他 (24h=1440分)
+  Widget _buildDailyDonutChart(DateTime date) {
+    final sleepM = _calcDailySleepMin(date);
+    final gameM = _calcDailyGameMin(date);
+    double otherM = 1440 - (sleepM + gameM);
+    if (otherM < 0) {
+      otherM = 0;
+    }
+
+    final sections = <PieChartSectionData>[
+      PieChartSectionData(value: sleepM, color: Colors.blue, title: 'Sleep'),
+      PieChartSectionData(value: gameM, color: Colors.red, title: 'Game'),
+      PieChartSectionData(value: otherM, color: Colors.grey, title: 'Other'),
+    ];
+
+    return SizedBox(
+      height: 200,
+      child: PieChart(
+        PieChartData(
+          sections: sections,
+          centerSpaceRadius: 40, // ドーナツ感
+        ),
+      ),
+    );
+  }
+
+  /// (2) 1週間の棒グラフ: 日付ごとに睡眠/ゲーム
+  Widget _buildWeeklyBar() {
+    // dayKeys: ex: "3/16","3/15","3/14",...
+    // reversed() するかどうかは好み
+    final dayKeys =
+        _dates.map((d) => "${d.month}/${d.day}").toList().reversed.toList();
+
+    // fl_chart用のBarChartGroupDataを作る
+    List<BarChartGroupData> groups = [];
+
+    // reversedの場合, i=0 => 最も古い日  , i=6 => 新しい日
+    int i = 0;
+    for (final dayStr in dayKeys) {
+      // dayStrをパース or iを使って _dates[_dates.length-1 - i]
+      // ここでは直にアクセスしづらいので、別のアプローチ:
+      final dateIndex = _dates.length - 1 - i;
+      final day = _dates[dateIndex];
+
+      final sleepMin = _calcDailySleepMin(day);
+      final gameMin = _calcDailyGameMin(day);
+
+      // 2本のBar (sleep=blue, game=red)
+      final rods = [
+        BarChartRodData(toY: sleepMin.toDouble(), color: Colors.blue, width: 8),
+        BarChartRodData(toY: gameMin.toDouble(), color: Colors.red, width: 8),
+      ];
+
+      groups.add(BarChartGroupData(x: i, barRods: rods));
+      i++;
+    }
+
+    return SizedBox(
+      height: 200,
+      child: BarChart(
+        BarChartData(
+          barGroups: groups,
+          titlesData: FlTitlesData(
+            bottomTitles: AxisTitles(
+              sideTitles: SideTitles(
+                showTitles: true,
+                getTitlesWidget: (value, meta) {
+                  final idx = value.toInt();
+                  // dayKeys= 0..6
+                  if (idx >= 0 && idx < dayKeys.length) {
+                    return Text(dayKeys[idx]); // ex: "3/10"
+                  }
+                  return const SizedBox();
+                },
+              ),
+            ),
+            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true)),
+          ),
+          borderData: FlBorderData(show: false),
+        ),
+      ),
+    );
+  }
+
+  // -- 該当日の睡眠(終了日=当日)
   List<HealthDataPoint> _filterSleepData(DateTime date) {
     return _sleepData.where((pt) {
       final end = pt.dateTo.toLocal();
@@ -265,7 +392,7 @@ class _MainScreenState extends State<MainScreen> {
     }).toList();
   }
 
-  /// 指定日の「開始日時が date のマッチ情報」だけを抽出
+  // -- 該当日のマッチ(開始日=当日)
   List<Map<String, dynamic>> _filterMatchData(DateTime date) {
     return _recentMatches.where((m) {
       final startMs = m["gameStartMillis"] as int? ?? 0;
@@ -276,13 +403,13 @@ class _MainScreenState extends State<MainScreen> {
     }).toList();
   }
 
-  /// マッチ情報の個別表示
-  Widget _buildMatchItem(Map<String, dynamic> match) {
-    final matchId = match["matchId"] ?? "";
-    final mapId = match["mapId"] ?? "";
-    final gameMode = match["gameMode"] ?? "";
-    final startMs = match["gameStartMillis"] as int? ?? 0;
-    final lengthMs = match["gameLengthMillis"] as int? ?? 0;
+  // matchItem描画
+  Widget _buildMatchItem(Map<String, dynamic> m) {
+    final matchId = m["matchId"] ?? "";
+    final mapId = m["mapId"] ?? "";
+    final gameMode = m["gameMode"] ?? "";
+    final startMs = m["gameStartMillis"] as int? ?? 0;
+    final lengthMs = m["gameLengthMillis"] as int? ?? 0;
 
     final startTime = DateTime.fromMillisecondsSinceEpoch(startMs).toLocal();
     final lengthMin = (lengthMs / 60000).toStringAsFixed(1);

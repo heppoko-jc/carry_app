@@ -41,6 +41,7 @@ dependencies:
   webview_flutter_android: ^4.3.3
   webview_flutter_wkwebview: ^3.18.4
   http: ^1.3.0
+  fl_chart: ^0.70.2
 
 dev_dependencies:
   flutter_test:
