@@ -2,17 +2,17 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:health/health.dart';
 import 'package:fl_chart/fl_chart.dart';
+
+// 修正した GameService, HealthService をimport
 import '../services/health_service.dart';
 import '../services/game_service.dart';
+// 日報画面用
 import '../screens/daily_report_screen.dart';
 
-// メイン画面: 日付切り替え、睡眠/マッチ情報表示、グラフ表示、"日報を入力"ボタン等
 class MainScreen extends StatefulWidget {
-  // 初回起動時などで取得済みのデータを受け取れるようにする
-  final List<HealthDataPoint>? sleepData;
-  final List<Map<String, dynamic>>? recentMatches;
+  final List<HealthDataPoint>? sleepData; // 初回起動時データ
+  final List<Map<String, dynamic>>? recentMatches; // 初回起動時データ
 
-  // 表示目的のWebCarry / Riot関連データ
   final String? sessionKey;
   final String? riotPUUID;
   final String? riotGameName;
@@ -33,29 +33,26 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  // Health / Gameサービス
   final HealthService _healthService = HealthService();
   final GameService _gameService = GameService();
 
-  // この画面で扱うデータ
+  // メイン画面が保持するデータ
   List<HealthDataPoint> _sleepData = [];
   List<Map<String, dynamic>> _recentMatches = [];
 
-  // セッションキー/PUUIDもフィールドで管理 (2回目以降はSharedPreferencesから再読み込み)
   String? _sessionKey;
   String? _puuid;
 
   bool _isLoading = false;
 
-  // 日付切り替え用 (前日~7日前)
+  // 日付切り替え (前日〜7日前)
   late List<DateTime> _dates;
   int _dayIndex = 0; // 0 => 前日, 6 => 7日前
 
   @override
   void initState() {
     super.initState();
-
-    // 1) 初回起動時に渡されたデータをコピー
+    // (1) 初回起動時データをコピー
     if (widget.sleepData != null) {
       _sleepData = widget.sleepData!;
     }
@@ -63,21 +60,21 @@ class _MainScreenState extends State<MainScreen> {
       _recentMatches = widget.recentMatches!;
     }
 
-    // セッションキー / PUUID をコピー
+    // sessionKey/puuid
     _sessionKey = widget.sessionKey;
     _puuid = widget.riotPUUID;
 
-    // 2) 日付リストを生成
+    // (2) 日付リスト
     _setupDates();
 
-    // 3) 2回目以降 or 毎回最新取得
+    // (3) 2回目以降or毎回の再取得
     _fetchAllData();
   }
 
-  /// 前日~7日前 の日付リストを用意
+  /// 前日〜7日前のDateTimeリスト
   void _setupDates() {
     final now = DateTime.now();
-    // 前日: 今日0:00から1日引いた日時
+    // 前日(今日0:00 -1日)
     final end = DateTime(
       now.year,
       now.month,
@@ -88,11 +85,10 @@ class _MainScreenState extends State<MainScreen> {
     for (int i = 0; i < 7; i++) {
       _dates.add(end.subtract(Duration(days: i)));
     }
-    // [0] => 前日, [6] => 7日前
     _dayIndex = 0;
   }
 
-  /// 2回目以降にも Sleep / Match を再取得
+  /// (A) 2回目以降データ再取得
   Future<void> _fetchAllData() async {
     setState(() => _isLoading = true);
 
@@ -100,8 +96,8 @@ class _MainScreenState extends State<MainScreen> {
     _sessionKey = prefs.getString('session_key') ?? _sessionKey;
     _puuid = prefs.getString('riot_puuid') ?? _puuid;
 
-    // Health(過去8日分など)を取得
-    final authorized = await _healthService.requestPermissions();
+    // 1) Health
+    bool authorized = await _healthService.requestPermissions();
     if (authorized) {
       final newSleepData = await _healthService.fetchSleepData();
       setState(() {
@@ -109,8 +105,9 @@ class _MainScreenState extends State<MainScreen> {
       });
     }
 
-    // RiotのPUUIDがあれば1週間のマッチ
+    // 2) Game
     if (_puuid != null && _puuid!.isNotEmpty) {
+      // getRecentMatches は detailを含む
       final newMatches = await _gameService.getRecentMatches(_puuid!);
       setState(() {
         _recentMatches = newMatches;
@@ -122,17 +119,17 @@ class _MainScreenState extends State<MainScreen> {
 
   @override
   Widget build(BuildContext context) {
-    // 現在表示中の日付
     final date = currentDate;
     final dateStr = currentDateString;
 
-    // 当日分の睡眠 / マッチデータを取得
+    // 当日分の睡眠
     final sleepsOfDay = _filterSleepData(date);
+    // 当日分のマッチ
     final matchesOfDay = _filterMatchData(date);
 
-    // ドーナツグラフ(当日24h)
+    // ドーナツグラフ(当日)
     final dailyDonut = _buildDailyDonutChart(date);
-    // 1週間の棒グラフ
+    // 1週間棒グラフ
     final weeklyBar = _buildWeeklyBar();
 
     return Scaffold(
@@ -145,18 +142,18 @@ class _MainScreenState extends State<MainScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    // ===== 日付ナビゲーター(＜ 日付 ＞) =====
+                    // 日付ナビ
                     _buildDateNavigator(),
                     const SizedBox(height: 20),
 
-                    // ===== 「日報を入力」ボタンを棒グラフより上に設置 =====
+                    // 日報ボタン
                     Center(
                       child: ElevatedButton(
                         onPressed: () {
                           Navigator.push(
                             context,
                             MaterialPageRoute(
-                              builder: (context) => const DailyReportScreen(),
+                              builder: (_) => const DailyReportScreen(),
                             ),
                           );
                         },
@@ -165,7 +162,7 @@ class _MainScreenState extends State<MainScreen> {
                     ),
                     const SizedBox(height: 20),
 
-                    // ===== ドーナツ(24h) =====
+                    // ドーナツ
                     Text(
                       "【$dateStr】ドーナツグラフ (24h)",
                       style: const TextStyle(
@@ -176,7 +173,7 @@ class _MainScreenState extends State<MainScreen> {
                     dailyDonut,
                     const SizedBox(height: 20),
 
-                    // ===== 当日の睡眠データ =====
+                    // 睡眠データ
                     Text(
                       "【$dateStr】の睡眠データ",
                       style: const TextStyle(
@@ -198,7 +195,7 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                     const SizedBox(height: 20),
 
-                    // ===== 当日のマッチデータ =====
+                    // マッチデータ
                     Text(
                       "【$dateStr】のマッチ情報",
                       style: const TextStyle(
@@ -215,7 +212,7 @@ class _MainScreenState extends State<MainScreen> {
                       ),
                     const SizedBox(height: 30),
 
-                    // ===== 1週間の棒グラフ =====
+                    // 1週間棒グラフ
                     const Text(
                       "1週間の睡眠 / ゲーム 棒グラフ",
                       style: TextStyle(
@@ -228,7 +225,7 @@ class _MainScreenState extends State<MainScreen> {
                     const SizedBox(height: 30),
                     const Divider(),
 
-                    // ===== 下部にセッションキー/PUUID等 =====
+                    // 下部セッションキー等
                     Text("セッションキー: ${_sessionKey ?? '未取得'}"),
                     Text("PUUID: ${_puuid ?? '未取得'}"),
                     Text("Game Name: ${widget.riotGameName ?? '未取得'}"),
@@ -239,7 +236,7 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // ＜＞ ボタン
+  // 日付切り替えUI
   Widget _buildDateNavigator() {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
@@ -274,7 +271,6 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // 現在の日付
   DateTime get currentDate => _dates[_dayIndex];
   String get currentDateString {
     final d = currentDate;
@@ -283,7 +279,7 @@ class _MainScreenState extends State<MainScreen> {
 
   String _twoDigits(int n) => n.toString().padLeft(2, '0');
 
-  // 1) ドーナツグラフ (当日24h)
+  /// ドーナツグラフ (当日24h)
   Widget _buildDailyDonutChart(DateTime date) {
     final sleepM = _calcDailySleepMin(date);
     final gameM = _calcDailyGameMin(date);
@@ -302,14 +298,13 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // 2) 1週間の棒グラフ
+  /// 1週間棒グラフ
   Widget _buildWeeklyBar() {
     final dayKeys =
         _dates.map((d) => "${d.month}/${d.day}").toList().reversed.toList();
-    List<BarChartGroupData> groups = [];
 
+    List<BarChartGroupData> groups = [];
     int i = 0;
-    // reversedなので i=0=>最も古い, i=6=>最も新しい
     for (final dayStr in dayKeys) {
       final dateIndex = _dates.length - 1 - i;
       final day = _dates[dateIndex];
@@ -352,7 +347,7 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // 当日終了した睡眠
+  // 当日終了した睡眠合計(分)
   double _calcDailySleepMin(DateTime date) {
     final sleeps = _filterSleepData(date);
     double sumMin = 0;
@@ -363,7 +358,7 @@ class _MainScreenState extends State<MainScreen> {
     return sumMin;
   }
 
-  // 当日開始したマッチ
+  // 当日開始したマッチの合計(分)
   double _calcDailyGameMin(DateTime date) {
     final matches = _filterMatchData(date);
     double sumMin = 0;
@@ -376,15 +371,17 @@ class _MainScreenState extends State<MainScreen> {
     return sumMin;
   }
 
+  // 当日終了の睡眠
   List<HealthDataPoint> _filterSleepData(DateTime date) {
     return _sleepData.where((pt) {
       final end = pt.dateTo.toLocal();
-      return end.year == date.year &&
+      return (end.year == date.year &&
           end.month == date.month &&
-          end.day == date.day;
+          end.day == date.day);
     }).toList();
   }
 
+  // 当日開始のマッチ
   List<Map<String, dynamic>> _filterMatchData(DateTime date) {
     return _recentMatches.where((m) {
       final startMs = (m["gameStartMillis"] as int?) ?? 0;
@@ -395,15 +392,38 @@ class _MainScreenState extends State<MainScreen> {
     }).toList();
   }
 
-  Widget _buildMatchItem(Map<String, dynamic> m) {
-    final matchId = m["matchId"] ?? "";
-    final mapId = m["mapId"] ?? "";
-    final gameMode = m["gameMode"] ?? "";
-    final startMs = (m["gameStartMillis"] as int?) ?? 0;
-    final lengthMs = (m["gameLengthMillis"] as int?) ?? 0;
+  /// マッチアイテムの表示 (修正後: 追加情報を表示)
+  Widget _buildMatchItem(Map<String, dynamic> match) {
+    // 基本情報
+    final matchId = match["matchId"] ?? "";
+    final mapId = match["mapId"] ?? "unknownMap";
+    final queueId = match["queueId"] ?? "unknownMode";
+    final isDm = match["isDeathmatch"] == true;
 
+    final startMs = (match["gameStartMillis"] as int?) ?? 0;
+    final lengthMs = (match["gameLengthMillis"] as int?) ?? 0;
     final startTime = DateTime.fromMillisecondsSinceEpoch(startMs).toLocal();
-    final lengthMin = (lengthMs / 60000).toStringAsFixed(1);
+    final lengthMin = (lengthMs / 60000.0).toStringAsFixed(1);
+
+    // スコア情報
+    final teamAScore = (match["teamAScore"] as int?) ?? 0;
+    final teamBScore = (match["teamBScore"] as int?) ?? 0;
+    final didWin = match["didWin"] == true;
+
+    // 自分情報
+    final self = match["self"] ?? {};
+    final selfName = "${self["name"]}#${self["tagLine"]}";
+    final selfChar = self["character"] ?? "???";
+    final selfKills = self["kills"] ?? 0;
+    final selfDeaths = self["deaths"] ?? 0;
+    final selfAssists = self["assists"] ?? 0;
+
+    final allyTeam =
+        (match["allyTeam"] as List<dynamic>? ?? [])
+            .cast<Map<String, dynamic>>();
+    final enemyTeam =
+        (match["enemyTeam"] as List<dynamic>? ?? [])
+            .cast<Map<String, dynamic>>();
 
     return Padding(
       padding: const EdgeInsets.only(left: 8, bottom: 8),
@@ -411,9 +431,46 @@ class _MainScreenState extends State<MainScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text("matchId: $matchId"),
-          Text("  map: $mapId, mode: $gameMode"),
+          Text("  map: $mapId, mode: $queueId"),
+          Text("  isDeathmatch: $isDm"),
           Text("  start: $startTime"),
           Text("  length: $lengthMin 分"),
+          // スコア (teamA - teamB)
+          Text("  teamA: $teamAScore vs teamB: $teamBScore"),
+          Text("  didWin (Self): $didWin"),
+          // 自分情報
+          const Text("  [Your Stats]:"),
+          Text("    name: $selfName"),
+          Text("    char: $selfChar"),
+          Text("    K/D/A: $selfKills/$selfDeaths/$selfAssists"),
+
+          // Ally Team
+          const Text("  Ally Team:"),
+          if (allyTeam.isEmpty)
+            const Text("   (none?)")
+          else
+            ...allyTeam.map((p) {
+              final pname = p["name"] ?? "";
+              final pchar = p["character"] ?? "";
+              final pk = p["kills"] ?? 0;
+              final pd = p["deaths"] ?? 0;
+              final pa = p["assists"] ?? 0;
+              return Text("    $pname [$pchar] => K/D/A: $pk/$pd/$pa");
+            }).toList(),
+
+          // Enemy Team
+          const Text("  Enemy Team:"),
+          if (enemyTeam.isEmpty)
+            const Text("   (none?)")
+          else
+            ...enemyTeam.map((p) {
+              final pname = p["name"] ?? "";
+              final pchar = p["character"] ?? "";
+              final pk = p["kills"] ?? 0;
+              final pd = p["deaths"] ?? 0;
+              final pa = p["assists"] ?? 0;
+              return Text("    $pname [$pchar] => K/D/A: $pk/$pd/$pa");
+            }).toList(),
         ],
       ),
     );
