@@ -3,9 +3,11 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'package:health/health.dart';
 import 'package:fl_chart/fl_chart.dart';
 
-// 修正した GameService, HealthService をimport
 import '../services/health_service.dart';
 import '../services/game_service.dart';
+import '../services/sleep_data_service.dart';
+import '../services/game_data_service.dart';
+import '../services/normal_sync_service.dart';
 // 日報画面用
 import '../screens/daily_report_screen.dart';
 
@@ -35,6 +37,8 @@ class MainScreen extends StatefulWidget {
 class _MainScreenState extends State<MainScreen> {
   final HealthService _healthService = HealthService();
   final GameService _gameService = GameService();
+  final SleepDataService _sleepDataService = SleepDataService();
+  final GameDataService _gameDataService = GameDataService();
 
   // メイン画面が保持するデータ
   List<HealthDataPoint> _sleepData = [];
@@ -67,8 +71,30 @@ class _MainScreenState extends State<MainScreen> {
     // (2) 日付リスト
     _setupDates();
 
-    // (3) 2回目以降or毎回の再取得
-    _fetchAllData();
+    // (3) 増分同期 -> UI更新
+    _syncIncremental();
+  }
+
+  Future<void> _syncIncremental() async {
+    setState(() => _isLoading = true);
+
+    try {
+      // NormalSyncServiceを生成
+      final normalSync = NormalSyncService(
+        healthService: _healthService,
+        gameService: _gameService,
+        sleepDataService: _sleepDataService,
+        gameDataService: _gameDataService,
+      );
+
+      // 増分同期実行
+      await normalSync.syncIncremental();
+
+      // 増分同期後、UI用のデータ再取得
+      await _fetchAllData();
+    } finally {
+      setState(() => _isLoading = false);
+    }
   }
 
   /// 前日〜7日前のDateTimeリスト

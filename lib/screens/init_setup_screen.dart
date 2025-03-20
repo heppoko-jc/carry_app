@@ -43,7 +43,7 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // 1) セッションキー取得
+      // (1) セッションキー取得
       final sessionKey = await _sessionService.acquireSessionKey(context);
       if (sessionKey == null) {
         setState(() => _isLoading = false);
@@ -51,14 +51,14 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
       }
       _sessionKey = sessionKey;
 
-      // 2) ディレクトリ作成 & 権限付与
+      // (2) ディレクトリ作成 & 権限付与
       final dirOk = await _apiService.initializeDirectories();
       if (!dirOk) {
         setState(() => _isLoading = false);
         return;
       }
 
-      // 3) Riot認証
+      // (3) Riot認証
       final accessToken = await _riotAuthService.authenticate(context);
       if (accessToken == null) {
         setState(() => _isLoading = false);
@@ -74,7 +74,7 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
         _riotTagLine = accountInfo["tagLine"];
       }
 
-      // 4) Health情報取得
+      // (4) Health情報取得
       final authorized = await _healthService.requestPermissions();
       if (!authorized) {
         setState(() => _isLoading = false);
@@ -83,13 +83,13 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
       final sleepData = await _healthService.fetchSleepData();
       _sleepData = sleepData;
 
-      // 5) ゲームのマッチ情報取得
+      // (5) ゲームのマッチ情報取得
       if (_riotPUUID != null && _riotPUUID!.isNotEmpty) {
         final matches = await _gameService.getRecentMatches(_riotPUUID!);
         _recentMatches = matches;
       }
 
-      // 6) Sleepデータを WebCarry へ送信
+      // (6) Sleepデータを WebCarry へ送信
       final sendOk = await _sleepDataService.sendSleepData(_sleepData);
       if (!sendOk) {
         print("❌ 睡眠データ送信失敗");
@@ -97,7 +97,7 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
         print("✅ 睡眠データ送信成功");
       }
 
-      // 7) ゲーム情報送信 (ユーザー情報, マッチ時間, マッチ詳細)
+      // (7) ゲーム情報送信 (ユーザー情報, マッチ時間, マッチ詳細)
       //    7-1) userInfo
       if (_riotPUUID != null &&
           _riotPUUID!.isNotEmpty &&
@@ -115,9 +115,6 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
       }
 
       //    7-2) 各マッチの時間(gametime) と match詳細
-      //         _recentMatchesには => {
-      //           "matchId","mapId","queueId","gameStartMillis","gameLengthMillis", "didWin" ...
-      //         }
       for (var m in _recentMatches) {
         // (a) gametime送信
         final gameTimeOk = await _gameDataService.sendGameTime(
@@ -136,7 +133,7 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
         }
       }
 
-      // 8) SharedPreferencesに保存
+      // (8) SharedPreferencesに保存
       final prefs = await SharedPreferences.getInstance();
       prefs.setString('session_key', _sessionKey!);
       prefs.setString('riot_puuid', _riotPUUID ?? '');
@@ -144,9 +141,15 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
       prefs.setString('riot_tagLine', _riotTagLine ?? '');
       prefs.setBool('isSetupComplete', true);
 
+      // (8-1) "初回同期日時" として now を保存
+      //       → 通常時の増分同期で使用 (normal_sync_service)
+      final now = DateTime.now();
+      prefs.setInt('lastSyncedTime', now.millisecondsSinceEpoch);
+      print("✅ 初回同期日時を $now に設定");
+
       setState(() => _isLoading = false);
 
-      // 9) MainScreenへ
+      // (9) MainScreenへ
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
