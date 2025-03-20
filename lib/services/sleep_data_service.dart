@@ -5,200 +5,145 @@ import 'package:health/health.dart';
 
 class SleepDataService {
   final String baseUrl = "https://milc.dev.sharo-dev.com";
+
   List<String> logs = [];
 
-  /// **ログを追加**
   void _addLog(String message) {
     logs.add(message);
-    print(message); // ターミナルにも表示
+    print(message);
   }
 
-  /// **セッションキーを取得**
+  /// セッションキー取得
   Future<String?> _getSessionKey() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('session_key');
   }
 
-  /// **CarryID を取得**
-  Future<int?> _getCarryId() async {
-    final String? sessionKey = await _getSessionKey();
-    if (sessionKey == null) return null;
-
-    final response = await http.get(
-      Uri.parse("$baseUrl/contents/item/search?app=carry&type=dir&parent=0"),
-      headers: {"apikey": sessionKey},
-    );
-
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      if (data.isNotEmpty) {
-        int carryId = data.first["id"];
-        _addLog("✅ 取得した CarryID: $carryId");
-        return carryId;
-      }
+  /// health ディレクトリの ID を検索 (初期フローで既に作成済み)
+  Future<int?> _findHealthDirId() async {
+    final sessionKey = await _getSessionKey();
+    if (sessionKey == null) {
+      _addLog("❌ セッションキーがありません");
+      return null;
     }
-    _addLog("❌ CarryID の取得に失敗");
-    return null;
-  }
 
-  /// **HealthID を取得**
-  Future<int?> _getHealthId(int carryId) async {
-    final String? sessionKey = await _getSessionKey();
-    if (sessionKey == null) return null;
-
+    // 1) health ディレクトリを検索
+    //    /contents/item/search?app=carry&key=health&type=dir
     final response = await http.get(
-      Uri.parse(
-        "$baseUrl/contents/item/search?app=carry&key=health&type=dir&parent=$carryId",
-      ),
+      Uri.parse("$baseUrl/contents/item/search?app=carry&key=health&type=dir"),
       headers: {"apikey": sessionKey},
     );
 
     if (response.statusCode == 200) {
       final List<dynamic> data = json.decode(response.body);
       if (data.isNotEmpty) {
-        int healthId = data.first["id"];
-        _addLog("✅ 取得した HealthID: $healthId");
+        final int healthId = data.first["id"];
+        _addLog("✅ 取得した HealthディレクトリID: $healthId");
         return healthId;
       }
+      _addLog("❌ healthディレクトリが存在しません");
+    } else {
+      _addLog("❌ healthディレクトリ検索失敗 code=${response.statusCode}");
     }
-    _addLog("❌ HealthID の取得に失敗");
     return null;
   }
 
-  /// **SleepID を取得（なければ作成）**
-  Future<int?> _getOrCreateSleepId(int healthId) async {
-    final String? sessionKey = await _getSessionKey();
-    if (sessionKey == null) return null;
+  /// sleep データエントリID を検索 or 作成
+  /// body: {...}, key="sleep", name="sleep", parent=healthId, type="data"
+  Future<int?> _findOrCreateSleepDataEntry(int healthId) async {
+    final sessionKey = await _getSessionKey();
+    if (sessionKey == null) {
+      _addLog("❌ セッションキーがありません");
+      return null;
+    }
 
-    final response = await http.get(
-      Uri.parse(
-        "$baseUrl/contents/item/search?app=carry&key=sleep&type=dir&parent=$healthId",
-      ),
+    // すでに "sleep" という data entry があるか?
+    final searchUrl =
+        "$baseUrl/contents/item/search?app=carry&key=sleep&type=data&parent=$healthId";
+    final searchRes = await http.get(
+      Uri.parse(searchUrl),
       headers: {"apikey": sessionKey},
     );
 
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      if (data.isNotEmpty) {
-        int sleepId = data.first["id"];
-        _addLog("✅ 取得した SleepID: $sleepId");
-        return sleepId;
-      }
-    }
-
-    // Sleepディレクトリがない場合、新規作成
-    final createResponse = await http.post(
-      Uri.parse("$baseUrl/contents/item/add"),
-      headers: {"Content-Type": "application/json", "apikey": sessionKey},
-      body: json.encode({
-        "name": "sleep",
-        "app": "carry",
-        "key": "sleep",
-        "type": "dir",
-        "meta": {},
-        "parent": healthId,
-      }),
-    );
-
-    if (createResponse.statusCode == 200) {
-      final Map<String, dynamic> data = json.decode(createResponse.body);
-      int sleepId = data["id"];
-      _addLog("✅ Sleep ディレクトリを新規作成: $sleepId");
-      return sleepId;
-    }
-
-    _addLog("❌ Sleep ディレクトリの作成に失敗");
-    return null;
-  }
-
-  /// **データエントリID を取得（なければ作成）**
-  Future<int?> _getOrCreateDataEntryId(int sleepId) async {
-    final String? sessionKey = await _getSessionKey();
-    if (sessionKey == null) return null;
-
-    final response = await http.get(
-      Uri.parse(
-        "$baseUrl/contents/item/search?app=carry&key=sleep&type=data&name=sleep&parent=$sleepId",
-      ),
-      headers: {"apikey": sessionKey},
-    );
-
-    if (response.statusCode == 200) {
-      final List<dynamic> data = json.decode(response.body);
-      if (data.isNotEmpty) {
-        int dataEntryId = data.first["id"];
-        _addLog("✅ 取得したデータエントリID: $dataEntryId");
+    if (searchRes.statusCode == 200) {
+      final List<dynamic> items = json.decode(searchRes.body);
+      if (items.isNotEmpty) {
+        final int dataEntryId = items.first["id"];
+        _addLog("✅ sleepデータエントリのID: $dataEntryId");
         return dataEntryId;
+      } else {
+        _addLog("sleepデータエントリが存在しないので作成します...");
       }
+    } else {
+      _addLog("❌ sleepデータエントリ検索失敗 code=${searchRes.statusCode}");
+      return null;
     }
 
-    // データエントリがない場合、新規作成
-    final createResponse = await http.post(
-      Uri.parse("$baseUrl/contents/item/add"),
+    // 作成
+    final createUrl = "$baseUrl/contents/item/add";
+    final createBody = {
+      "name": "sleep",
+      "app": "carry",
+      "key": "sleep",
+      "type": "data",
+      "meta": {},
+      "parent": healthId,
+    };
+    final createRes = await http.post(
+      Uri.parse(createUrl),
       headers: {"Content-Type": "application/json", "apikey": sessionKey},
-      body: json.encode({
-        "name": "sleep",
-        "app": "carry",
-        "key": "sleep",
-        "type": "data",
-        "meta": {},
-        "parent": sleepId,
-      }),
+      body: json.encode(createBody),
     );
 
-    if (createResponse.statusCode == 200) {
-      final Map<String, dynamic> data = json.decode(createResponse.body);
-      int dataEntryId = data["id"];
-      _addLog("✅ データエントリを新規作成: $dataEntryId");
-      return dataEntryId;
+    if (createRes.statusCode == 200) {
+      final Map<String, dynamic> respData = json.decode(createRes.body);
+      final int newId = respData["id"];
+      _addLog("✅ sleepデータエントリを新規作成: ID=$newId");
+      return newId;
+    } else {
+      _addLog("❌ sleepデータエントリの作成に失敗 code=${createRes.statusCode}");
+      return null;
     }
-
-    _addLog("❌ データエントリの作成に失敗");
-    return null;
   }
 
-  /// **睡眠データを送信**
-  Future<bool> sendSleepData(List<HealthDataPoint> sleepData) async {
-    final int? carryId = await _getCarryId();
-    if (carryId == null) return false;
-
-    final int? healthId = await _getHealthId(carryId);
+  /// 一週間の SleepData を送信
+  /// - すでに health ディレクトリが初期設定で作られている前提
+  /// - "sleep" data entry に state.add
+  Future<bool> sendSleepData(List<HealthDataPoint> weekOfSleeps) async {
+    // 1) health ディレクトリのIDを検索
+    final healthId = await _findHealthDirId();
     if (healthId == null) return false;
 
-    final int? sleepId = await _getOrCreateSleepId(healthId);
-    if (sleepId == null) return false;
+    // 2) sleep data entry
+    final sleepEntryId = await _findOrCreateSleepDataEntry(healthId);
+    if (sleepEntryId == null) return false;
 
-    final int? dataEntryId = await _getOrCreateDataEntryId(sleepId);
-    if (dataEntryId == null) return false;
-
-    final String? sessionKey = await _getSessionKey();
-    if (sessionKey == null) return false;
-
-    // データ変換
-    List<Map<String, dynamic>> formattedData =
-        sleepData.map((data) {
-          return {
-            "datetime": data.dateFrom.millisecondsSinceEpoch,
-            "duration": data.dateTo.difference(data.dateFrom).inMilliseconds,
-          };
-        }).toList();
-
-    _addLog("📦 送信データ: ${json.encode(formattedData)}"); // JSONログを記録
-
-    final response = await http.post(
-      Uri.parse("$baseUrl/contents/item/$dataEntryId/state/add"),
-      headers: {"Content-Type": "application/json", "apikey": sessionKey},
-      body: json.encode(formattedData),
-    );
-
-    if (response.statusCode == 200) {
-      _addLog("✅ 睡眠データ送信成功！ (${formattedData.length}件)");
-      _addLog("📡 WebCarry レスポンス: ${response.body}");
-      return true;
+    // 3) データ変換
+    //    datetime= dateFrom(UNIX ms), duration= (dateTo - dateFrom) ms
+    List<Map<String, dynamic>> states = [];
+    for (var dp in weekOfSleeps) {
+      final startMs = dp.dateFrom.millisecondsSinceEpoch;
+      final durationMs = dp.dateTo.difference(dp.dateFrom).inMilliseconds;
+      states.add({"datetime": startMs, "duration": durationMs});
     }
 
-    _addLog("❌ 睡眠データ送信失敗...");
-    _addLog("📡 WebCarry エラー: ${response.statusCode} - ${response.body}");
-    return false;
+    final sessionKey = await _getSessionKey();
+    if (sessionKey == null) return false;
+
+    final url = "$baseUrl/contents/item/$sleepEntryId/state/add";
+    final res = await http.post(
+      Uri.parse(url),
+      headers: {"Content-Type": "application/json", "apikey": sessionKey},
+      body: json.encode(states),
+    );
+
+    if (res.statusCode == 200) {
+      _addLog("✅ 一週間の睡眠データ送信成功！ [${states.length}件]");
+      _addLog("レスポンス: ${res.body}");
+      return true;
+    } else {
+      _addLog("❌ 一週間睡眠データ送信失敗 code=${res.statusCode} body=${res.body}");
+      return false;
+    }
   }
 }
