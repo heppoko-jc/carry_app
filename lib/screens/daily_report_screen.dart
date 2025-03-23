@@ -276,7 +276,7 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
 
     setState(() => _isLoading = false);
 
-    // 戻る
-    Navigator.pop(context);
+    // メイン画面にtureを返して戻る
+    Navigator.pop(context, true);
   }
 }

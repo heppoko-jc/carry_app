@@ -1,4 +1,5 @@
 // lib/services/daily_report_service.dart
+
 import 'dart:convert';
 import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
@@ -12,16 +13,18 @@ class DailyReportService {
     print(message);
   }
 
-  /// セッションキーの取得
   Future<String?> _getSessionKey() async {
     final prefs = await SharedPreferences.getInstance();
     return prefs.getString('session_key');
   }
 
-  /// healthディレクトリID を検索
+  /// healthディレクトリのIDを検索
   Future<int?> _findHealthDirId() async {
     final sessionKey = await _getSessionKey();
-    if (sessionKey == null) return null;
+    if (sessionKey == null) {
+      _addLog("❌ セッションキーなし");
+      return null;
+    }
 
     final url = "$baseUrl/contents/item/search?app=carry&type=dir&key=health";
     final resp = await http.get(
@@ -35,19 +38,21 @@ class DailyReportService {
         _addLog("✅ HealthディレクトリID: $healthId");
         return healthId;
       }
-      _addLog("❌ Healthディレクトリが見つかりません");
+      _addLog("❌ Healthディレクトリが見つからない");
     } else {
-      _addLog("❌ Healthディレクトリ検索失敗 code=${resp.statusCode}");
+      _addLog("❌ Health検索失敗 code=${resp.statusCode}");
     }
     return null;
   }
 
-  /// daily データエントリを検索/作成
-  Future<int?> _findOrCreateDailyEntry(int healthId) async {
+  /// daily データエントリIDを検索
+  Future<int?> _findDailyId() async {
+    final healthId = await _findHealthDirId();
+    if (healthId == null) return null;
+
     final sessionKey = await _getSessionKey();
     if (sessionKey == null) return null;
 
-    // 検索
     final searchUrl =
         "$baseUrl/contents/item/search?app=carry&key=daily&type=data&parent=$healthId";
     final resp = await http.get(
@@ -60,49 +65,15 @@ class DailyReportService {
         final int dailyId = items.first["id"];
         _addLog("✅ dailyエントリID: $dailyId");
         return dailyId;
-      } else {
-        _addLog("dailyエントリが無いので作成します...");
       }
+      _addLog("❌ dailyエントリが見つからない");
     } else {
       _addLog("❌ dailyエントリ検索失敗 code=${resp.statusCode}");
-      return null;
     }
-
-    // 作成
-    final createUrl = "$baseUrl/contents/item/add";
-    final body = {
-      "name": "daily",
-      "app": "carry",
-      "key": "daily",
-      "type": "data",
-      "meta": {},
-      "parent": healthId,
-    };
-    final createResp = await http.post(
-      Uri.parse(createUrl),
-      headers: {"Content-Type": "application/json", "apikey": sessionKey},
-      body: json.encode(body),
-    );
-    if (createResp.statusCode == 200) {
-      final Map<String, dynamic> respData = json.decode(createResp.body);
-      final int newId = respData["id"];
-      _addLog("✅ dailyエントリ新規作成: ID=$newId");
-      return newId;
-    } else {
-      _addLog("❌ dailyエントリ作成失敗 code=${createResp.statusCode}");
-      return null;
-    }
+    return null;
   }
 
-  /// **日報データを送信**
-  /// [reportData] はフォーム内容
-  /// [reportDateMs] はその日付を「日本時間12:00」などに変換したUnixTime(ms)
-  ///
-  /// POST => /contents/item/{dailyId}/state/add
-  /// body: {
-  ///   "datetime": reportDateMs,
-  ///   "value": { ...reportData... }
-  /// }
+  /// 日報データの送信
   Future<bool> sendDailyReport({
     required Map<String, dynamic> reportData,
     required int reportDateMs,
@@ -129,6 +100,78 @@ class DailyReportService {
     } else {
       _addLog("❌ 日報送信失敗 code=${resp.statusCode}, body=${resp.body}");
       return false;
+    }
+  }
+
+  /// dailyエントリを検索 or 作成
+  Future<int?> _findOrCreateDailyEntry(int healthId) async {
+    final sessionKey = await _getSessionKey();
+    if (sessionKey == null) return null;
+
+    // 検索
+    final searchUrl =
+        "$baseUrl/contents/item/search?app=carry&key=daily&type=data&parent=$healthId";
+    final resp = await http.get(
+      Uri.parse(searchUrl),
+      headers: {"apikey": sessionKey},
+    );
+    if (resp.statusCode == 200) {
+      final List<dynamic> items = json.decode(resp.body);
+      if (items.isNotEmpty) {
+        final int dailyId = items.first["id"];
+        return dailyId;
+      }
+    }
+    // なければ作成
+    final createUrl = "$baseUrl/contents/item/add";
+    final createBody = {
+      "name": "daily",
+      "app": "carry",
+      "key": "daily",
+      "type": "data",
+      "meta": {},
+      "parent": healthId,
+    };
+    final createResp = await http.post(
+      Uri.parse(createUrl),
+      headers: {"Content-Type": "application/json", "apikey": sessionKey},
+      body: json.encode(createBody),
+    );
+    if (createResp.statusCode == 200) {
+      final Map<String, dynamic> respData = json.decode(createResp.body);
+      final int newId = respData["id"];
+      _addLog("✅ dailyエントリ新規作成: ID=$newId");
+      return newId;
+    }
+    _addLog("❌ dailyエントリ作成失敗 code=${createResp.statusCode}");
+    return null;
+  }
+
+  /// **(新規) 日報一覧を取得**
+  /// GET /contents/item/{dailyId}/state
+  /// => [ {id, iid, datetime, duration, value: {...}}, ... ]
+  Future<List<Map<String, dynamic>>> fetchDailyReports() async {
+    final dailyId = await _findDailyId();
+    if (dailyId == null) {
+      _addLog("❌ dailyIdが取得できず一覧取れない");
+      return [];
+    }
+    final sessionKey = await _getSessionKey();
+    if (sessionKey == null) return [];
+
+    final url = "$baseUrl/contents/item/$dailyId/state";
+    final resp = await http.get(
+      Uri.parse(url),
+      headers: {"apikey": sessionKey},
+    );
+    if (resp.statusCode == 200) {
+      final List<dynamic> list = json.decode(resp.body);
+      final reports = list.map((e) => e as Map<String, dynamic>).toList();
+      _addLog("✅ 日報一覧取得: ${reports.length}件");
+      return reports;
+    } else {
+      _addLog("❌ 日報一覧取得失敗 code=${resp.statusCode}, body=${resp.body}");
+      return [];
     }
   }
 }
