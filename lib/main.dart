@@ -1,8 +1,8 @@
-// main.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
+
 import 'screens/init_setup_screen.dart';
-import 'screens/main_screen.dart';
+import 'screens/home_root_screen.dart';
 
 void main() {
   runApp(const MyApp());
@@ -13,7 +13,10 @@ class MyApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(debugShowCheckedModeBanner: false, home: AppRouter());
+    return const MaterialApp(
+      debugShowCheckedModeBanner: false,
+      home: AppRouter(),
+    );
   }
 }
 
@@ -21,7 +24,7 @@ class AppRouter extends StatefulWidget {
   const AppRouter({super.key});
 
   @override
-  _AppRouterState createState() => _AppRouterState();
+  State<AppRouter> createState() => _AppRouterState();
 }
 
 class _AppRouterState extends State<AppRouter> {
@@ -33,11 +36,10 @@ class _AppRouterState extends State<AppRouter> {
     _checkSetupComplete();
   }
 
+  /// SharedPreferences から初期設定の完了フラグを読み込む
   Future<void> _checkSetupComplete() async {
     final prefs = await SharedPreferences.getInstance();
-    // isSetupComplete が存在しなければ false
     final done = prefs.getBool('isSetupComplete') ?? false;
-
     setState(() {
       _isSetupComplete = done;
     });
@@ -46,16 +48,16 @@ class _AppRouterState extends State<AppRouter> {
   @override
   Widget build(BuildContext context) {
     if (_isSetupComplete == null) {
-      // ローディング中
+      // ロード中
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    // 初回起動でセットアップが完了していなければ InitSetupScreen に遷移
+    // 初回起動: isSetupComplete == false → InitSetupScreen
     if (!_isSetupComplete!) {
       return const InitSetupScreen();
-    } else {
-      // 2回目以降 → メイン画面へ
-      return MainScreen(sleepData: const [], recentMatches: const []);
     }
+
+    // 2回目以降: HomeRootScreen に遷移
+    return const HomeRootScreen();
   }
 }

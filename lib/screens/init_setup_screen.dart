@@ -1,8 +1,8 @@
-// init_setup_screen.dart
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import '../services/session_service.dart';
 import 'package:health/health.dart';
+
+import '../services/session_service.dart';
 import '../services/api_service.dart';
 import '../services/riot_auth_service.dart';
 import '../services/health_service.dart';
@@ -10,26 +10,28 @@ import '../services/game_service.dart';
 import '../services/sleep_data_service.dart';
 import '../services/game_data_service.dart';
 
-import 'main_screen.dart';
+import 'home_root_screen.dart';
 
 class InitSetupScreen extends StatefulWidget {
-  const InitSetupScreen({super.key});
+  const InitSetupScreen({Key? key}) : super(key: key);
 
   @override
-  _InitSetupScreenState createState() => _InitSetupScreenState();
+  State<InitSetupScreen> createState() => _InitSetupScreenState();
 }
 
 class _InitSetupScreenState extends State<InitSetupScreen> {
   bool _isLoading = false;
 
+  // サービス
   final SessionService _sessionService = SessionService();
   final ApiService _apiService = ApiService();
   final RiotAuthService _riotAuthService = RiotAuthService();
   final HealthService _healthService = HealthService();
   final GameService _gameService = GameService();
   final SleepDataService _sleepDataService = SleepDataService();
-  final GameDataService _gameDataService = GameDataService(); // ←追加
+  final GameDataService _gameDataService = GameDataService();
 
+  // 取得したデータ格納用
   String? _sessionKey;
   String? _riotAccessToken;
   String? _riotPUUID;
@@ -43,9 +45,10 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
     setState(() => _isLoading = true);
 
     try {
-      // (1) セッションキー取得
+      // (1) WebCarryセッションキー
       final sessionKey = await _sessionService.acquireSessionKey(context);
       if (sessionKey == null) {
+        // ユーザーがキャンセル等
         setState(() => _isLoading = false);
         return;
       }
@@ -66,7 +69,7 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
       }
       _riotAccessToken = accessToken;
 
-      // 3-1) アカウント情報を取得
+      // (3-1) アカウント情報取得
       final accountInfo = await _riotAuthService.getAccountInfo(accessToken);
       if (accountInfo != null) {
         _riotPUUID = accountInfo["puuid"];
@@ -74,7 +77,7 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
         _riotTagLine = accountInfo["tagLine"];
       }
 
-      // (4) Health情報取得
+      // (4) Health権限 & 睡眠データ取得
       final authorized = await _healthService.requestPermissions();
       if (!authorized) {
         setState(() => _isLoading = false);
@@ -83,22 +86,22 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
       final sleepData = await _healthService.fetchSleepData();
       _sleepData = sleepData;
 
-      // (5) ゲームのマッチ情報取得
+      // (5) ゲームマッチ情報
       if (_riotPUUID != null && _riotPUUID!.isNotEmpty) {
         final matches = await _gameService.getRecentMatches(_riotPUUID!);
         _recentMatches = matches;
       }
 
-      // (6) Sleepデータを WebCarry へ送信
-      final sendOk = await _sleepDataService.sendSleepData(_sleepData);
-      if (!sendOk) {
-        print("❌ 睡眠データ送信失敗");
+      // (6) Sleepデータ送信
+      final sleepSendOk = await _sleepDataService.sendSleepData(_sleepData);
+      if (!sleepSendOk) {
+        print("❌ [InitSetup] 睡眠データ送信失敗");
       } else {
-        print("✅ 睡眠データ送信成功");
+        print("✅ [InitSetup] 睡眠データ送信成功");
       }
 
-      // (7) ゲーム情報送信 (ユーザー情報, マッチ時間, マッチ詳細)
-      //    7-1) userInfo
+      // (7) ゲーム情報送信
+      //  (7-1) ユーザー情報
       if (_riotPUUID != null &&
           _riotPUUID!.isNotEmpty &&
           _riotGameName != null) {
@@ -108,66 +111,59 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
           tagline: _riotTagLine ?? "",
         );
         if (!userOk) {
-          print("❌ ユーザー情報の送信失敗");
+          print("❌ [InitSetup] ユーザー情報送信失敗");
         } else {
-          print("✅ ユーザー情報の送信成功");
+          print("✅ [InitSetup] ユーザー情報送信成功");
         }
       }
-
-      //    7-2) 各マッチの時間(gametime) と match詳細
+      //  (7-2) マッチ
       for (var m in _recentMatches) {
-        // (a) gametime送信
-        final gameTimeOk = await _gameDataService.sendGameTime(
+        final timeOk = await _gameDataService.sendGameTime(
           gameStartMillis: m["gameStartMillis"] ?? 0,
           gameLengthMillis: m["gameLengthMillis"] ?? 0,
           gameName: "valorant",
         );
-        if (!gameTimeOk) {
-          print("❌ gametime送信失敗 for matchId=${m["matchId"]}");
+        if (!timeOk) {
+          print("❌ [InitSetup] gametime送信失敗 matchId=${m["matchId"]}");
         }
 
-        // (b) match詳細送信
         final matchOk = await _gameDataService.sendMatchDetail(m);
         if (!matchOk) {
-          print("❌ match情報送信失敗 for matchId=${m["matchId"]}");
+          print("❌ [InitSetup] match情報送信失敗 matchId=${m["matchId"]}");
         }
       }
 
-      // (8) SharedPreferencesに保存
+      // (8) SharedPreferences保存 (あとで通常同期などで使用可能)
       final prefs = await SharedPreferences.getInstance();
       prefs.setString('session_key', _sessionKey!);
       prefs.setString('riot_puuid', _riotPUUID ?? '');
       prefs.setString('riot_gameName', _riotGameName ?? '');
       prefs.setString('riot_tagLine', _riotTagLine ?? '');
+      prefs.setString('riotAccessToken', _riotAccessToken ?? '');
       prefs.setBool('isSetupComplete', true);
 
-      // (8-1) "初回同期日時" として now を保存
-      //       → 通常時の増分同期で使用 (normal_sync_service)
+      // (8-1) 初回同期日時を記録 => 通常同期/増分同期の基準時刻
       final now = DateTime.now();
       prefs.setInt('lastSyncedTime', now.millisecondsSinceEpoch);
-      print("✅ 初回同期日時を $now に設定");
+      print("✅ [InitSetup] 初回同期日時: $now に設定");
 
       setState(() => _isLoading = false);
 
-      // (9) MainScreenへ
+      // (9) HomeRootScreen に遷移し、初期フローで取得したデータをそのまま渡す
       Navigator.pushReplacement(
         context,
         MaterialPageRoute(
           builder:
-              (_) => MainScreen(
-                sleepData: _sleepData,
-                recentMatches: _recentMatches,
-                sessionKey: _sessionKey,
-                riotPUUID: _riotPUUID,
-                riotGameName: _riotGameName,
-                riotTagLine: _riotTagLine,
+              (_) => HomeRootScreen(
+                // ↓ コンストラクタに受け取り用パラメータを作り、渡す
+                initSleepData: _sleepData,
+                initMatches: _recentMatches,
               ),
         ),
       );
     } catch (e) {
-      print("❌ 初期設定中の例外: $e");
+      print("❌ [InitSetup] 初期設定中に例外発生: $e");
       setState(() => _isLoading = false);
-      // エラー処理
     }
   }
 

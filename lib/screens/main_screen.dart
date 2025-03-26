@@ -1,33 +1,25 @@
 import 'package:flutter/material.dart';
-import 'package:shared_preferences/shared_preferences.dart';
 import 'package:health/health.dart';
 import 'package:fl_chart/fl_chart.dart';
-
-import '../services/health_service.dart';
-import '../services/game_service.dart';
-import '../services/sleep_data_service.dart';
-import '../services/game_data_service.dart';
-import '../services/normal_sync_service.dart';
-import '../services/daily_report_service.dart'; // 日報データ取得
-import '../screens/daily_report_screen.dart'; // 日報入力画面
 
 class MainScreen extends StatefulWidget {
   final List<HealthDataPoint>? sleepData;
   final List<Map<String, dynamic>>? recentMatches;
+  final List<Map<String, dynamic>>? dailyReports;
 
-  final String? sessionKey;
-  final String? riotPUUID;
-  final String? riotGameName;
-  final String? riotTagLine;
+  // 日付リスト: HomeRootScreenで作った (前日〜7日前)
+  final List<DateTime>? dateList;
+
+  // 日報入力ボタン押下時のコールバック
+  final VoidCallback? onTapDailyReport;
 
   const MainScreen({
     super.key,
     this.sleepData,
     this.recentMatches,
-    this.sessionKey,
-    this.riotPUUID,
-    this.riotGameName,
-    this.riotTagLine,
+    this.dailyReports,
+    this.dateList,
+    this.onTapDailyReport,
   });
 
   @override
@@ -35,21 +27,10 @@ class MainScreen extends StatefulWidget {
 }
 
 class _MainScreenState extends State<MainScreen> {
-  final HealthService _healthService = HealthService();
-  final GameService _gameService = GameService();
-  final SleepDataService _sleepDataService = SleepDataService();
-  final GameDataService _gameDataService = GameDataService();
-  final DailyReportService _dailyReportService = DailyReportService();
-
-  bool _isLoading = false;
-
   // データ
-  List<HealthDataPoint> _sleepData = [];
-  List<Map<String, dynamic>> _recentMatches = [];
-  List<Map<String, dynamic>> _dailyReports = []; // 日報一覧
-
-  String? _sessionKey;
-  String? _puuid;
+  late List<HealthDataPoint> _sleepData;
+  late List<Map<String, dynamic>> _recentMatches;
+  late List<Map<String, dynamic>> _dailyReports; // 日報一覧
 
   // 日付切り替え (前日〜7日前)
   late List<DateTime> _dates;
@@ -59,120 +40,33 @@ class _MainScreenState extends State<MainScreen> {
   void initState() {
     super.initState();
 
-    // 初回起動時の sleepData / recentMatches をコピー
-    if (widget.sleepData != null) {
-      _sleepData = widget.sleepData!;
-    }
-    if (widget.recentMatches != null) {
-      _recentMatches = widget.recentMatches!;
-    }
+    // コンストラクタ引数をコピー
+    _sleepData = widget.sleepData ?? [];
+    _recentMatches = widget.recentMatches ?? [];
+    _dailyReports = widget.dailyReports ?? [];
 
-    _sessionKey = widget.sessionKey;
-    _puuid = widget.riotPUUID;
+    // HomeRootScreen側から受け取った日付リスト (前日〜7日前)
+    _dates = widget.dateList ?? [];
 
-    // デバッグ用最終同期日調整
-    // _debugResetLastSyncedTime();
-
-    _setupDates();
-
-    // 同期 -> データ取得
-    _syncIncremental();
-  }
-
-  //デバッグ用最終同期日調整
-  // Future<void> _debugResetLastSyncedTime() async {
-  //  final prefs = await SharedPreferences.getInstance();
-  //  final debugDate = DateTime.now().subtract(const Duration(days: 2));
-  //  await prefs.setInt('lastSyncedTime', debugDate.millisecondsSinceEpoch);
-  //  print("【DEBUG】lastSyncedTimeを $debugDate に設定");
-  // }
-
-  // 増分同期
-  Future<void> _syncIncremental() async {
-    setState(() => _isLoading = true);
-    try {
-      final normalSync = NormalSyncService(
-        healthService: _healthService,
-        gameService: _gameService,
-        sleepDataService: _sleepDataService,
-        gameDataService: _gameDataService,
-      );
-      await normalSync.syncIncremental();
-      await _fetchAllData();
-    } finally {
-      setState(() => _isLoading = false);
-    }
-  }
-
-  // 日付リスト(前日〜7日前)
-  void _setupDates() {
-    final now = DateTime.now();
-    final end = DateTime(
-      now.year,
-      now.month,
-      now.day,
-    ).subtract(const Duration(days: 1));
-
-    _dates = [];
-    for (int i = 0; i < 7; i++) {
-      _dates.add(end.subtract(Duration(days: i)));
-    }
+    // 初期値 dayIndex=0 => 前日
     _dayIndex = 0;
-  }
-
-  // データ取得(睡眠、マッチ、日報)
-  Future<void> _fetchAllData() async {
-    setState(() => _isLoading = true);
-
-    final prefs = await SharedPreferences.getInstance();
-    _sessionKey = prefs.getString('session_key') ?? _sessionKey;
-    _puuid = prefs.getString('riot_puuid') ?? _puuid;
-
-    // 1) 睡眠
-    final authorized = await _healthService.requestPermissions();
-    if (authorized) {
-      final newSleepData = await _healthService.fetchSleepData();
-      _sleepData = newSleepData;
-    }
-
-    // 2) マッチ
-    if (_puuid != null && _puuid!.isNotEmpty) {
-      final newMatches = await _gameService.getRecentMatches(_puuid!);
-      _recentMatches = newMatches;
-    }
-
-    // 3) 日報
-    final dailyList = await _dailyReportService.fetchDailyReports();
-    _dailyReports = dailyList;
-
-    setState(() => _isLoading = false);
-  }
-
-  // 日報送信後際読み込み
-  Future<void> _fetchDailyReportsOnly() async {
-    setState(() => _isLoading = true);
-
-    // 日報のみ取得
-    final dailyList = await _dailyReportService.fetchDailyReports();
-
-    setState(() {
-      _dailyReports = dailyList;
-      _isLoading = false;
-    });
   }
 
   @override
   Widget build(BuildContext context) {
-    final date = currentDate;
-    final dateStr = currentDateString;
+    // 現在の選択日
+    final currentDate =
+        _dates.isNotEmpty
+            ? _dates[_dayIndex]
+            : DateTime.now().subtract(const Duration(days: 1));
+
+    final dateStr =
+        "${currentDate.year}-${_twoDigits(currentDate.month)}-${_twoDigits(currentDate.day)}";
 
     // 当日分(前日〜7日前のうち一つ)
-    final sleepsOfDay = _filterSleepData(date);
-    final matchesOfDay = _filterMatchData(date);
-    final dailyItem = _filterDailyData(date);
-
-    final dailyDonut = _buildDailyDonutChart(date);
-    final weeklyBar = _buildWeeklyBar();
+    final sleepsOfDay = _filterSleepData(currentDate);
+    final matchesOfDay = _filterMatchData(currentDate);
+    final dailyItem = _filterDailyData(currentDate);
 
     // 日報入力判別用
     final yesterday = _dates[0];
@@ -180,148 +74,97 @@ class _MainScreenState extends State<MainScreen> {
 
     return Scaffold(
       appBar: AppBar(title: const Text("Carry App - Main Screen")),
-      body:
-          _isLoading
-              ? const Center(child: CircularProgressIndicator())
-              : SingleChildScrollView(
-                padding: const EdgeInsets.all(16),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    // ★ ここで昨日の日報が無い場合、アナウンスを表示
-                    if (yesterdayReport == null)
-                      Container(
-                        color: Colors.yellow[100],
-                        padding: const EdgeInsets.all(8),
-                        child: const Text(
-                          "日報を入力しましょう！",
-                          style: TextStyle(
-                            fontSize: 16,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                      ),
-
-                    const SizedBox(height: 20),
-
-                    // 日付ナビ
-                    _buildDateNavigator(),
-                    const SizedBox(height: 20),
-
-                    // 日報入力
-                    Center(
-                      child: ElevatedButton(
-                        onPressed: () async {
-                          final result = await Navigator.push(
-                            context,
-                            MaterialPageRoute(
-                              builder: (_) => const DailyReportScreen(),
-                            ),
-                          );
-                          if (result == true) {
-                            // 日報送信成功したので、日報データだけ再取得
-                            await _fetchDailyReportsOnly();
-
-                            // 必要に応じてアナウンス非表示など setState 反映
-                            setState(() {});
-                          }
-                        },
-                        child: const Text("日報を入力"),
-                      ),
-                    ),
-                    const SizedBox(height: 20),
-
-                    // ドーナツ(24h)
-                    Text(
-                      "【$dateStr】ドーナツグラフ (24h)",
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    dailyDonut,
-                    const SizedBox(height: 20),
-
-                    // 睡眠
-                    Text(
-                      "【$dateStr】の睡眠データ",
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (sleepsOfDay.isEmpty)
-                      const Text("睡眠データなし")
-                    else
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children:
-                            sleepsOfDay.map((pt) {
-                              final start = pt.dateFrom.toLocal();
-                              final end = pt.dateTo.toLocal();
-                              return Text("開始: $start, 終了: $end");
-                            }).toList(),
-                      ),
-                    const SizedBox(height: 20),
-
-                    // マッチ
-                    Text(
-                      "【$dateStr】のマッチ情報",
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (matchesOfDay.isEmpty)
-                      const Text("マッチ情報なし")
-                    else
-                      Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: matchesOfDay.map(_buildMatchItem).toList(),
-                      ),
-                    const SizedBox(height: 30),
-
-                    // 日報
-                    Text(
-                      "【$dateStr】の日報",
-                      style: const TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    if (dailyItem == null)
-                      const Text("日報なし")
-                    else
-                      _buildDailyReportView(
-                        dailyItem["value"] as Map<String, dynamic>,
-                      ),
-                    const SizedBox(height: 30),
-
-                    // 1週間棒グラフ
-                    const Text(
-                      "1週間の睡眠 / ゲーム 棒グラフ",
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.bold,
-                      ),
-                    ),
-                    weeklyBar,
-
-                    const SizedBox(height: 30),
-                    const Divider(),
-
-                    // セッションキーなど
-                    Text("セッションキー: ${_sessionKey ?? '未取得'}"),
-                    Text("PUUID: ${_puuid ?? '未取得'}"),
-                    // riotGameName / tagLine
-                  ],
+      body: SingleChildScrollView(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // (A) 昨日の日報未入力ならアナウンス
+            if (yesterdayReport == null)
+              Container(
+                color: Colors.yellow[100],
+                padding: const EdgeInsets.all(8),
+                child: const Text(
+                  "日報を入力しましょう！",
+                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
                 ),
               ),
+            const SizedBox(height: 20),
+
+            // (B) 日付ナビ
+            _buildDateNavigator(dateStr),
+            const SizedBox(height: 20),
+
+            // (C) 「日報を入力」ボタン => HomeRootScreen の onTapDailyReport
+            Center(
+              child: ElevatedButton(
+                onPressed: widget.onTapDailyReport,
+                child: const Text("日報を入力"),
+              ),
+            ),
+            const SizedBox(height: 20),
+
+            // (D) ドーナツ(24h)
+            Text(
+              "【$dateStr】ドーナツグラフ (24h)",
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            _buildDailyDonutChart(currentDate),
+            const SizedBox(height: 20),
+
+            // (E) 睡眠データ
+            Text(
+              "【$dateStr】の睡眠データ",
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            if (sleepsOfDay.isEmpty)
+              const Text("睡眠データなし")
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children:
+                    sleepsOfDay.map((pt) {
+                      final start = pt.dateFrom.toLocal();
+                      final end = pt.dateTo.toLocal();
+                      return Text("開始: $start, 終了: $end");
+                    }).toList(),
+              ),
+            const SizedBox(height: 20),
+
+            // (F) マッチ情報
+            Text(
+              "【$dateStr】のマッチ情報",
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            if (matchesOfDay.isEmpty)
+              const Text("マッチ情報なし")
+            else
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: matchesOfDay.map(_buildMatchItem).toList(),
+              ),
+            const SizedBox(height: 30),
+
+            // (G) 日報
+            Text(
+              "【$dateStr】の日報",
+              style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+            ),
+            if (dailyItem == null)
+              const Text("日報なし")
+            else
+              _buildDailyReportView(dailyItem["value"] as Map<String, dynamic>),
+            const SizedBox(height: 30),
+
+            const Divider(),
+          ],
+        ),
+      ),
     );
   }
 
   // ==== 日付ナビ ====
-  Widget _buildDateNavigator() {
+  Widget _buildDateNavigator(String dateStr) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.center,
       children: [
@@ -331,13 +174,11 @@ class _MainScreenState extends State<MainScreen> {
               _dayIndex >= 6
                   ? null
                   : () {
-                    setState(() {
-                      _dayIndex++;
-                    });
+                    setState(() => _dayIndex++);
                   },
         ),
         Text(
-          currentDateString,
+          dateStr,
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
         ),
         IconButton(
@@ -346,24 +187,14 @@ class _MainScreenState extends State<MainScreen> {
               _dayIndex <= 0
                   ? null
                   : () {
-                    setState(() {
-                      _dayIndex--;
-                    });
+                    setState(() => _dayIndex--);
                   },
         ),
       ],
     );
   }
 
-  DateTime get currentDate => _dates[_dayIndex];
-  String get currentDateString {
-    final d = currentDate;
-    return "${d.year}-${_twoDigits(d.month)}-${_twoDigits(d.day)}";
-  }
-
-  String _twoDigits(int n) => n.toString().padLeft(2, '0');
-
-  // ==== ドーナツグラフ ====
+  // ==== ドーナツグラフ (24h) ====
   Widget _buildDailyDonutChart(DateTime date) {
     final sleepM = _calcDailySleepMin(date);
     final gameM = _calcDailyGameMin(date);
@@ -382,56 +213,7 @@ class _MainScreenState extends State<MainScreen> {
     );
   }
 
-  // ==== 1週間棒グラフ ====
-  Widget _buildWeeklyBar() {
-    final dayKeys =
-        _dates.map((d) => "${d.month}/${d.day}").toList().reversed.toList();
-
-    List<BarChartGroupData> groups = [];
-    int i = 0;
-    for (final dayStr in dayKeys) {
-      final dateIndex = _dates.length - 1 - i;
-      final day = _dates[dateIndex];
-
-      final sleepMin = _calcDailySleepMin(day);
-      final gameMin = _calcDailyGameMin(day);
-
-      final rods = [
-        BarChartRodData(toY: sleepMin, color: Colors.blue, width: 8),
-        BarChartRodData(toY: gameMin, color: Colors.red, width: 8),
-      ];
-
-      groups.add(BarChartGroupData(x: i, barRods: rods));
-      i++;
-    }
-
-    return SizedBox(
-      height: 200,
-      child: BarChart(
-        BarChartData(
-          barGroups: groups,
-          titlesData: FlTitlesData(
-            bottomTitles: AxisTitles(
-              sideTitles: SideTitles(
-                showTitles: true,
-                getTitlesWidget: (value, meta) {
-                  final idx = value.toInt();
-                  if (idx >= 0 && idx < dayKeys.length) {
-                    return Text(dayKeys[idx]);
-                  }
-                  return const SizedBox();
-                },
-              ),
-            ),
-            leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true)),
-          ),
-          borderData: FlBorderData(show: false),
-        ),
-      ),
-    );
-  }
-
-  // ==== 睡眠時間(分) ====
+  // ==== 計算系 ====
   double _calcDailySleepMin(DateTime date) {
     final sleeps = _filterSleepData(date);
     double sumMin = 0;
@@ -442,7 +224,6 @@ class _MainScreenState extends State<MainScreen> {
     return sumMin;
   }
 
-  // ==== ゲーム時間(分) ====
   double _calcDailyGameMin(DateTime date) {
     final matches = _filterMatchData(date);
     double sumMin = 0;
@@ -455,7 +236,7 @@ class _MainScreenState extends State<MainScreen> {
     return sumMin;
   }
 
-  // ==== 睡眠フィルタ ====
+  // ==== フィルタ ====
   List<HealthDataPoint> _filterSleepData(DateTime date) {
     return _sleepData.where((pt) {
       final end = pt.dateTo.toLocal();
@@ -465,7 +246,6 @@ class _MainScreenState extends State<MainScreen> {
     }).toList();
   }
 
-  // ==== マッチフィルタ ====
   List<Map<String, dynamic>> _filterMatchData(DateTime date) {
     return _recentMatches.where((m) {
       final startMs = (m["gameStartMillis"] as int?) ?? 0;
@@ -476,11 +256,11 @@ class _MainScreenState extends State<MainScreen> {
     }).toList();
   }
 
-  // ==== 日報フィルタ ====
   Map<String, dynamic>? _filterDailyData(DateTime date) {
-    // daily -> {id, datetime, value:{}}
+    // 同じロジック: 12時固定
     final localDate = DateTime(date.year, date.month, date.day, 12);
     final ms = localDate.millisecondsSinceEpoch;
+
     for (var item in _dailyReports) {
       final dt = item["datetime"] as int? ?? 0;
       if (dt == ms) {
@@ -598,4 +378,6 @@ class _MainScreenState extends State<MainScreen> {
       ),
     );
   }
+
+  String _twoDigits(int n) => n.toString().padLeft(2, '0');
 }
