@@ -11,7 +11,7 @@ class DailyReportScreen extends StatefulWidget {
 
 class _DailyReportScreenState extends State<DailyReportScreen> {
   // ゲーム部分
-  int _motivation = 3;
+  double _motivation = 50;
   int _selfEval = 3;
   final TextEditingController _gameCommentCtrl = TextEditingController();
 
@@ -19,7 +19,7 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
   bool _isHealthBad = false;
   final TextEditingController _symptomCtrl = TextEditingController();
   final TextEditingController _placeCtrl = TextEditingController();
-  double _painLevel = 5; // Slider
+  double _painLevel = 50; // Slider
   final TextEditingController _healthCommentCtrl = TextEditingController();
 
   // 日付の項目 (前日が初期値)
@@ -66,26 +66,19 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
                     ),
                     const SizedBox(height: 8),
 
-                    // モチベ(ラジオ 1..5)
-                    const Text("ゲームのモチベーション(1~5)"),
-                    Row(
-                      children: List.generate(5, (index) {
-                        final val = index + 1;
-                        return Row(
-                          children: [
-                            Radio<int>(
-                              value: val,
-                              groupValue: _motivation,
-                              onChanged: (v) {
-                                setState(() {
-                                  _motivation = v!;
-                                });
-                              },
-                            ),
-                            Text("$val"),
-                          ],
-                        );
-                      }),
+                    // ゲームのモチベーション：1〜100のスライダー
+                    const Text("ゲームのモチベーション (1〜100)"),
+                    Slider(
+                      min: 1,
+                      max: 100,
+                      divisions: 99,
+                      value: _motivation,
+                      onChanged: (newVal) {
+                        setState(() {
+                          _motivation = newVal;
+                        });
+                      },
+                      // 数値表示をしないため、labelを空に設定
                     ),
                     const SizedBox(height: 10),
 
@@ -166,16 +159,15 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
                       ),
                       const SizedBox(height: 10),
 
-                      const Text("痛み/倦怠感(1~10)"),
+                      const Text("痛み/倦怠感(1~100)"),
                       Slider(
                         min: 1,
-                        max: 10,
-                        divisions: 9,
+                        max: 100,
+                        divisions: 99,
                         value: _painLevel,
-                        label: "${_painLevel.toInt()}",
-                        onChanged: (val) {
+                        onChanged: (newVal) {
                           setState(() {
-                            _painLevel = val;
+                            _painLevel = newVal;
                           });
                         },
                       ),
@@ -243,7 +235,7 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
     final dailyReport = <String, dynamic>{};
 
     // ゲーム
-    dailyReport["motivation"] = _motivation;
+    dailyReport["motivation"] = _motivation.toInt();
     dailyReport["selfEvaluation"] = _selfEval;
     dailyReport["G-comment"] = _gameCommentCtrl.text.trim(); // 空なら ""
 
@@ -252,7 +244,7 @@ class _DailyReportScreenState extends State<DailyReportScreen> {
     if (_isHealthBad) {
       dailyReport["symptom"] = _symptomCtrl.text.trim();
       dailyReport["place"] = _placeCtrl.text.trim();
-      dailyReport["painLevel"] = _painLevel.toInt().toString(); // ex. "5"
+      dailyReport["painLevel"] = _painLevel.toInt();
       dailyReport["M-comment"] = _healthCommentCtrl.text.trim();
     } else {
       // 悪くない場合もキーを追加して空を入れる

@@ -2,11 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:health/health.dart';
 import 'package:fl_chart/fl_chart.dart';
 
-/// WeeklyScreenでは1週間まとめの棒グラフなどを表示する
+/// WeeklyScreenでは1週間まとめの棒グラフと日報(モチベーション)の折れ線グラフを表示する
 class WeeklyScreen extends StatelessWidget {
   final List<HealthDataPoint> sleepData;
   final List<Map<String, dynamic>> recentMatches;
   final List<Map<String, dynamic>> dailyReports;
+  // dataListは、index 0: 前日、6: 7日前 の降順で入っている前提
   final List<DateTime> dateList;
 
   const WeeklyScreen({
@@ -19,6 +20,9 @@ class WeeklyScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // sortedDates: 昇順（古い→新しい）に変換
+    final List<DateTime> sortedDates = List.from(dateList.reversed);
+
     return Scaffold(
       appBar: AppBar(title: const Text("ウィークリー")),
       body: SingleChildScrollView(
@@ -31,15 +35,15 @@ class WeeklyScreen extends StatelessWidget {
               "1週間の睡眠 / ゲーム 棒グラフ",
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
-            _buildWeeklyBar(),
+            _buildWeeklyBar(sortedDates),
             const SizedBox(height: 30),
 
-            // ==== (2) モチベーション & 自己評価 折れ線グラフ ====
+            // ==== (2) モチベーション の折れ線グラフ ====
             const Text(
-              "1週間の日報 (モチベーション/自己評価)",
+              "1週間の日報 (モチベーション)",
               style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
             ),
-            _buildDailyReportLineChart(),
+            _buildDailyReportLineChart(sortedDates),
             const SizedBox(height: 30),
             const Divider(),
           ],
@@ -50,19 +54,17 @@ class WeeklyScreen extends StatelessWidget {
 
   /// -------------------------------
   /// (1) 睡眠/ゲーム の棒グラフ
+  /// sortedDates は昇順（0: 7日前、最終: 前日）
   /// -------------------------------
-  Widget _buildWeeklyBar() {
-    // dateList は 7日分の日付
-    // reversedして 古い→新しい の順 or 新しい→古い の順は好みでOK
-    final dayKeys =
-        dateList.map((d) => "${d.month}/${d.day}").toList().reversed.toList();
+  Widget _buildWeeklyBar(List<DateTime> sortedDates) {
+    // X軸ラベルもsortedDatesを利用して古い→新しい順で表示
+    final dayKeys = sortedDates.map((d) => "${d.month}/${d.day}").toList();
 
     final groups = <BarChartGroupData>[];
 
-    // ここでは「古い→新しい」を左→右にしたいので reversed
-    for (int i = 0; i < dayKeys.length; i++) {
-      final dateIndex = dateList.length - 1 - i;
-      final day = dateList[dateIndex];
+    // 0からsortedDates.length - 1の順番でX軸の値と対応させる
+    for (int i = 0; i < sortedDates.length; i++) {
+      final day = sortedDates[i];
 
       final sleepMin = _calcDailySleepMin(day);
       final gameMin = _calcDailyGameMin(day);
@@ -73,7 +75,6 @@ class WeeklyScreen extends StatelessWidget {
       ];
 
       groups.add(BarChartGroupData(x: i, barRods: rods));
-      i++;
     }
 
     return SizedBox(
@@ -82,19 +83,21 @@ class WeeklyScreen extends StatelessWidget {
         BarChartData(
           barGroups: groups,
           titlesData: FlTitlesData(
+            topTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
             bottomTitles: AxisTitles(
               sideTitles: SideTitles(
                 showTitles: true,
                 getTitlesWidget: (value, meta) {
                   final idx = value.toInt();
                   if (idx >= 0 && idx < dayKeys.length) {
-                    return Text(dayKeys[idx]); // "3/21"など
+                    return Text(dayKeys[idx]);
                   }
                   return const SizedBox();
                 },
               ),
             ),
             leftTitles: AxisTitles(sideTitles: SideTitles(showTitles: true)),
+            rightTitles: AxisTitles(sideTitles: SideTitles(showTitles: false)),
           ),
           borderData: FlBorderData(show: false),
         ),
@@ -103,78 +106,63 @@ class WeeklyScreen extends StatelessWidget {
   }
 
   /// -------------------------------
-  /// (2) モチベーション / 自己評価 の折れ線グラフ
+  /// (2) モチベーション の折れ線グラフ
   /// -------------------------------
-  Widget _buildDailyReportLineChart() {
-    // モチベ(Line1=オレンジ) と自己評価(Line2=緑)
+  Widget _buildDailyReportLineChart(List<DateTime> sortedDates) {
     final motivationSpots = <FlSpot>[];
-    final selfEvalSpots = <FlSpot>[];
 
-    // dateList[0..6] を古い順(0=最古, 6=最新)に見せたいなら普通に for i in 0..6
-    // reversedにする場合は工夫要
-    // ここは "古い→新しい" 左→右を想定
-    for (int i = 0; i < dateList.length; i++) {
-      final day = dateList[i];
-      final xValue = i.toDouble(); // 0..6
+    // sortedDatesは昇順（古い→新しい）なので、その順でX軸値は0〜n-1
+    for (int i = 0; i < sortedDates.length; i++) {
+      final day = sortedDates[i];
+      final xValue = i.toDouble();
       final report = _findDailyReport(day);
       if (report == null) {
-        // 日報なし => スキップ => 線が途切れる
+        // 日報なしはNaNを入れて折れ線が途切れるように
+        motivationSpots.add(FlSpot(xValue, double.nan));
         continue;
       }
       final val = report["value"] as Map<String, dynamic>? ?? {};
+      // モチベーションは1〜100の値を想定
       final mot = (val["motivation"] is int) ? val["motivation"] as int : 0;
-      final sev =
-          (val["selfEvaluation"] is int) ? val["selfEvaluation"] as int : 0;
-
-      // 1..5 の想定, 0なら実質空 => skip
       if (mot > 0) {
         motivationSpots.add(FlSpot(xValue, mot.toDouble()));
-      }
-      if (sev > 0) {
-        selfEvalSpots.add(FlSpot(xValue, sev.toDouble()));
+      } else {
+        motivationSpots.add(FlSpot(xValue, double.nan));
       }
     }
 
-    // Line1(モチベ)
     final motivationLine = LineChartBarData(
       spots: motivationSpots,
       color: Colors.orange,
       isCurved: false,
       dotData: const FlDotData(show: true),
     );
-    // Line2(自己評価)
-    final selfEvalLine = LineChartBarData(
-      spots: selfEvalSpots,
-      color: Colors.green,
-      isCurved: false,
-      dotData: const FlDotData(show: true),
-    );
 
-    // 0..6 => 7日
-    // y=1..5 程度 => 0..6 に余裕を持たせる
     final chartData = LineChartData(
       minX: 0,
-      maxX: 6,
+      maxX: (sortedDates.length - 1).toDouble(),
       minY: 0,
-      maxY: 6,
+      maxY: 110, // 余裕を持たせるため110
       titlesData: FlTitlesData(
         bottomTitles: AxisTitles(
           sideTitles: SideTitles(
             showTitles: true,
-            // x=0..6 => dateList[i], i=0が最古日
+            // X軸ラベルはsortedDatesをそのまま使用（古い→新しい）
             getTitlesWidget: (value, meta) {
-              final i = value.toInt();
-              if (i < 0 || i >= dateList.length) return const SizedBox();
-              final d = dateList[i];
-              return Text("${d.month}/${d.day}");
+              final idx = value.toInt();
+              if (idx >= 0 && idx < sortedDates.length) {
+                final d = sortedDates[idx];
+                return Text("${d.month}/${d.day}");
+              }
+              return const SizedBox();
             },
           ),
         ),
         leftTitles: AxisTitles(
-          sideTitles: SideTitles(showTitles: true, interval: 1),
+          sideTitles: SideTitles(showTitles: true, interval: 10),
         ),
       ),
-      lineBarsData: [motivationLine, selfEvalLine],
+      lineBarsData: [motivationLine],
     );
 
     return SizedBox(height: 200, child: LineChart(chartData));
@@ -184,6 +172,7 @@ class WeeklyScreen extends StatelessWidget {
   /// 睡眠/ゲーム棒グラフの計算ロジック
   /// -------------------------------
   double _calcDailySleepMin(DateTime date) {
+    // sleepDataはWeeklyScreenに渡されたデータ
     final sleeps = _filterSleepData(date);
     double sumMin = 0;
     for (var pt in sleeps) {
@@ -205,6 +194,7 @@ class WeeklyScreen extends StatelessWidget {
     return sumMin;
   }
 
+  // ==== フィルタリング処理 ====
   List<HealthDataPoint> _filterSleepData(DateTime date) {
     return sleepData.where((pt) {
       final end = pt.dateTo.toLocal();
@@ -225,13 +215,12 @@ class WeeklyScreen extends StatelessWidget {
   }
 
   /// -------------------------------
-  /// 日報(モチベ/評価)折れ線グラフの計算用
+  /// 日報(モチベーション)折れ線グラフの計算用
   /// -------------------------------
   Map<String, dynamic>? _findDailyReport(DateTime day) {
-    // "datetime" が dayの12:00 のEpochMSかどうか
+    // 日報のdatetimeはその日の12:00固定
     final localMidday = DateTime(day.year, day.month, day.day, 12);
     final targetMs = localMidday.millisecondsSinceEpoch;
-
     for (var rep in dailyReports) {
       final dt = rep["datetime"] as int? ?? 0;
       if (dt == targetMs) {

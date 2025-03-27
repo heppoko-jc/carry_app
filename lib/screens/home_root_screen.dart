@@ -1,3 +1,4 @@
+import 'package:carry_app/screens/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:health/health.dart';
@@ -27,7 +28,7 @@ class HomeRootScreen extends StatefulWidget {
 }
 
 class _HomeRootScreenState extends State<HomeRootScreen> {
-  // BottomNavigationBarのインデックス
+  // BottomNavigationBarのインデックス（0: メイン, 1: 週画面, 2: 設定）
   int _currentIndex = 0;
 
   // 同期＆データ取得中のプログレス表示用
@@ -194,6 +195,7 @@ class _HomeRootScreenState extends State<HomeRootScreen> {
         dailyReports: _dailyReports,
         dateList: _dates,
       ),
+      const SettingsScreen(),
     ];
 
     return Scaffold(
@@ -211,6 +213,7 @@ class _HomeRootScreenState extends State<HomeRootScreen> {
             icon: Icon(Icons.calendar_today),
             label: "ウィークリー",
           ),
+          BottomNavigationBarItem(icon: Icon(Icons.settings), label: "設定"),
         ],
       ),
       floatingActionButton:
