@@ -10,6 +10,8 @@ import '../services/game_service.dart';
 import '../services/sleep_data_service.dart';
 import '../services/game_data_service.dart';
 
+import '../screens/policy_screens.dart';
+
 import 'home_root_screen.dart';
 
 class InitSetupScreen extends StatefulWidget {
@@ -45,6 +47,34 @@ class _InitSetupScreenState extends State<InitSetupScreen> {
     setState(() => _isLoading = true);
 
     try {
+      // (0) 利用規約の表示と同意
+      bool? termsAgreed = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) =>
+                  TermsScreen(onNext: () => Navigator.pop(context, true)),
+        ),
+      );
+      if (termsAgreed != true) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
+      // (0.1) 研究同意書の表示と同意
+      bool? consentAgreed = await Navigator.push<bool>(
+        context,
+        MaterialPageRoute(
+          builder:
+              (context) =>
+                  ConsentScreen(onNext: () => Navigator.pop(context, true)),
+        ),
+      );
+      if (consentAgreed != true) {
+        setState(() => _isLoading = false);
+        return;
+      }
+
       // (1) WebCarryセッションキー
       final sessionKey = await _sessionService.acquireSessionKey(context);
       if (sessionKey == null) {

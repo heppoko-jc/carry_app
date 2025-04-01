@@ -53,22 +53,52 @@ class _SessionKeyWebViewState extends State<SessionKeyWebView> {
     _controller =
         WebViewController()
           ..setJavaScriptMode(JavaScriptMode.unrestricted)
+          ..addJavaScriptChannel(
+            "TokenChannel",
+            onMessageReceived: (JavaScriptMessage message) {
+              final token = message.message;
+              debugPrint("TokenChannel message: $token");
+              if (token.isNotEmpty) {
+                // トークンが取得できたら WebView を閉じる
+                Navigator.pop(context, token);
+              }
+            },
+          )
           ..setNavigationDelegate(
             NavigationDelegate(
-              onPageFinished: (String url) {
-                if (url.contains("generated-token=")) {
-                  final Uri uri = Uri.parse(url);
-                  final String? token = uri.queryParameters["generated-token"];
-                  if (token != null) {
-                    Navigator.pop(context, token);
+              onNavigationRequest: (NavigationRequest request) {
+                debugPrint("NavigationRequest: ${request.url}");
+                return NavigationDecision.navigate;
+              },
+              onPageFinished: (String url) async {
+                debugPrint("Page finished: $url");
+                // ページ読み込み完了後に JavaScript をインジェクト
+                await _controller.runJavaScript('''
+              (function() {
+                  function checkToken() {
+                      var url = window.location.href;
+                      if (url.indexOf("generated-token=") !== -1) {
+                          var token = new URL(url).searchParams.get("generated-token");
+                          if(token) {
+                              TokenChannel.postMessage(token);
+                          }
+                      }
                   }
-                }
+                  window.addEventListener("popstate", checkToken);
+                  var originalPushState = history.pushState;
+                  history.pushState = function() {
+                      originalPushState.apply(history, arguments);
+                      checkToken();
+                  };
+                  checkToken();
+              })();
+            ''');
               },
             ),
           )
           ..loadRequest(
             Uri.parse(
-              "https://milc.dev.sharo-dev.com/?app=account&dialog=registerNewApp&newApp=Carry-App",
+              "https://milc.dev.sharo-dev.com/?app=account&dialog=registerNewApp&newApp=Carry-App&fullscreen=1&headless=1&disableCancel=1",
             ),
           );
   }
